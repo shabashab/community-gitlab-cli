@@ -11,6 +11,7 @@ The project includes another binary named `gl-axi`. That binary is intended to b
 - Language: Go
 - Module: `github.com/shabashab/community-gitlab-cli`
 - CLI framework: Cobra (`github.com/spf13/cobra`)
+- GitLab API client: `gitlab.com/gitlab-org/api/client-go/v2`
 - Task runner: Taskfile v3 (`Taskfile.yml`)
 - Primary binary: `gl`, built into `bin/gl`
 - Additional binary: `gl-axi`, built into `bin/gl-axi`
@@ -20,6 +21,7 @@ The project includes another binary named `gl-axi`. That binary is intended to b
 - `cmd/gl/main.go`: `gl` application entry point; calls `cli.Execute()`.
 - `cmd/gl-axi/main.go`: `gl-axi` application entry point; calls `cli.ExecuteAxi()`.
 - `internal/cli/root.go`: shared Cobra root command definition and CLI initialization.
+- `internal/gitlabclient/config.go`: shared GitLab client-go configuration and client construction.
 - `go.mod`: Go module metadata and dependency declarations.
 - `go.sum`: Go dependency checksums.
 - `Taskfile.yml`: project task definitions for building and running the CLI.
@@ -69,6 +71,24 @@ task run -- --help
 task run -- <subcommand> <args>
 ```
 
+### `task test`
+
+Runs Go tests with `go test ./...`.
+
+When to run it:
+
+- After changing Go source files.
+- Before handing off behavior that should be covered by automated tests.
+
+### `task client-go-source`
+
+Downloads the official GitLab client-go module if needed and prints its local module-cache metadata, including the exact `Dir` path agents can inspect with `rg`, `sed`, or `go doc`.
+
+When to run it:
+
+- Before adding a command that needs a GitLab API method you have not used before.
+- When debugging how `client-go` builds requests, handles pagination, retries, or models an API response.
+
 ### `task run-axi -- <args>`
 
 Builds and runs the `gl-axi` binary with optional arguments.
@@ -91,9 +111,40 @@ task run-axi -- --help
 task run-axi -- <subcommand> <args>
 ```
 
+## GitLab Client-Go Workflow For Agents
+
+All GitLab communication should go through `internal/gitlabclient`, which creates the official `gitlab.com/gitlab-org/api/client-go/v2` client. Do not add parallel hand-written REST callers unless there is a documented client-go gap.
+
+Configuration contract:
+
+- Token: prefer `GITLAB_TOKEN`; `GL_TOKEN` and `--gitlab-token` are also supported.
+- Instance URL: use `GITLAB_BASE_URL` or `--gitlab-base-url`; default is `https://gitlab.com`.
+- `client-go` accepts either the GitLab root URL or an `/api/v4` URL and normalizes the API path internally.
+
+To inspect the actual upstream implementation:
+
+```sh
+task client-go-source
+```
+
+Use the printed `Dir` value to inspect source directly, for example:
+
+```sh
+rg "func NewClient|func WithBaseURL|type Client struct" <Dir>
+rg "type UsersServiceInterface|func .*CurrentUser" <Dir>/users.go
+```
+
+Helpful starting points inside the client-go source:
+
+- `gitlab.go`: client construction, retry behavior, base URL normalization, request execution.
+- `client_options.go`: `WithBaseURL`, `WithUserAgent`, HTTP client options, retry options.
+- `<resource>.go`: service interfaces, request option structs, and API methods for a GitLab resource.
+- `request_options.go`: per-request options such as `gitlab.WithContext`.
+- `testing/`: generated service mocks from the upstream project when a future command needs interface-driven tests.
+
 ## Notes For Agents
 
 - Keep generated binaries and transient local outputs out of source changes unless explicitly requested.
 - Prefer adding task commands to `Taskfile.yml` when a workflow becomes repeated or important for agentic development.
-- If tests are added, document the test command here and in `README.md`.
+- Run `task test` after changing Go source files.
 - Preserve scriptability when adding CLI behavior: stable flags, clear stdout/stderr separation, useful exit codes, and machine-readable output where appropriate.

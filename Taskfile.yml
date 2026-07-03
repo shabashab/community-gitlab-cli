@@ -9,6 +9,10 @@ tasks:
       - go build -o bin/gl ./cmd/gl
       - go build -o bin/gl-axi ./cmd/gl-axi
       - chmod +x bin/gl bin/gl-axi
+  test:
+    desc: Run Go tests
+    cmds:
+      - go test ./...
   run:
     desc: Run the gl binary
     cmds:
@@ -21,3 +25,8 @@ tasks:
       - bin/gl-axi {{.CLI_ARGS}}
     deps:
       - build
+  client-go-source:
+    desc: Print the local module-cache metadata for the GitLab client-go source
+    cmds:
+      - go mod download gitlab.com/gitlab-org/api/client-go/v2
+      - go list -m -json gitlab.com/gitlab-org/api/client-go/v2

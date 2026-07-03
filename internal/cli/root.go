@@ -4,9 +4,12 @@ Copyright © 2026 Artem Tarasenko <shabashab.04@gmail.com>
 package cli
 
 import (
+	"fmt"
 	"os"
 
+	"github.com/shabashab/community-gitlab-cli/internal/gitlabclient"
 	"github.com/spf13/cobra"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 
 const glLongDescription = `Community GitLab CLI works with GitLab through the personal access token API.
@@ -19,38 +22,73 @@ const glAxiLongDescription = `gl-axi is the axi-oriented Community GitLab CLI en
 It works with GitLab through the personal access token API and is intended for
 agentic workflows based on the axi standard introduced by Kun Chen.`
 
+type rootOptions struct {
+	gitlabToken   string
+	gitlabBaseURL string
+	output        string
+}
+
 func newRootCommand(use, short, long string) *cobra.Command {
+	opts := &rootOptions{}
+
 	rootCmd := &cobra.Command{
-		Use:   use,
-		Short: short,
-		Long:  long,
+		Use:           use,
+		Short:         short,
+		Long:          long,
+		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
 
-	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	rootCmd.PersistentFlags().StringVar(
+		&opts.gitlabToken,
+		"gitlab-token",
+		"",
+		fmt.Sprintf("GitLab personal access token (env %s or %s)", gitlabclient.TokenEnv, gitlabclient.AlternateTokenEnv),
+	)
+	rootCmd.PersistentFlags().StringVar(
+		&opts.gitlabBaseURL,
+		"gitlab-base-url",
+		"",
+		fmt.Sprintf("GitLab instance URL (env %s, default %s)", gitlabclient.BaseURLEnv, gitlabclient.DefaultBaseURL),
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&opts.output,
+		"output",
+		"o",
+		"text",
+		"Output format: text, json",
+	)
+
+	rootCmd.AddCommand(newWhoamiCommand(opts))
 
 	return rootCmd
 }
 
-// Execute runs the primary gl binary entry point.
-func Execute() {
-	err := newRootCommand(
-		"gl",
-		"Community GitLab CLI for agentic workflows",
-		glLongDescription,
-	).Execute()
-	if err != nil {
+func (o *rootOptions) newGitLabClient() (*gitlab.Client, error) {
+	return gitlabclient.NewConfig(o.gitlabToken, o.gitlabBaseURL).NewClient()
+}
+
+func execute(cmd *cobra.Command) {
+	if err := cmd.Execute(); err != nil {
+		fmt.Fprintln(cmd.ErrOrStderr(), err)
 		os.Exit(1)
 	}
 }
 
+// Execute runs the primary gl binary entry point.
+func Execute() {
+	execute(newRootCommand(
+		"gl",
+		"Community GitLab CLI for agentic workflows",
+		glLongDescription,
+	))
+}
+
 // ExecuteAxi runs the axi-oriented gl-axi binary entry point.
 func ExecuteAxi() {
-	err := newRootCommand(
+	execute(newRootCommand(
 		"gl-axi",
 		"Axi-oriented Community GitLab CLI for agentic workflows",
 		glAxiLongDescription,
-	).Execute()
-	if err != nil {
-		os.Exit(1)
-	}
+	))
 }
