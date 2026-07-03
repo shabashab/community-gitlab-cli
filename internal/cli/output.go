@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shabashab/community-gitlab-cli/internal/credstore"
 	"github.com/shabashab/community-gitlab-cli/internal/gitlabclient"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
@@ -31,6 +32,39 @@ type axiUserOutput struct {
 type axiWhoamiOutput struct {
 	User axiUserOutput `json:"user"`
 	Next string        `json:"next"`
+}
+
+type authLoginResult struct {
+	Username string `json:"username"`
+	Domain   string `json:"domain"`
+	Backend  string `json:"backend"`
+}
+
+type axiAuthLoginOutput struct {
+	Login authLoginResult `json:"login"`
+	Next  string          `json:"next"`
+}
+
+type authLogoutResult struct {
+	Domain   string   `json:"domain"`
+	Backends []string `json:"backends"`
+}
+
+type axiAuthLogoutOutput struct {
+	Logout authLogoutResult `json:"logout"`
+	Next   string           `json:"next"`
+}
+
+type authStatusResult struct {
+	Domain        string   `json:"domain"`
+	Authenticated bool     `json:"authenticated"`
+	Backends      []string `json:"backends"`
+	Warnings      []string `json:"warnings,omitempty"`
+}
+
+type axiAuthStatusOutput struct {
+	Status authStatusResult `json:"status"`
+	Next   string           `json:"next"`
 }
 
 type projectNamespaceOutput struct {
@@ -220,6 +254,177 @@ func writeAxiUser(w io.Writer, format string, user *gitlab.User) error {
 			toonValue(out.WebURL),
 			toonValue("Use project list when available to inspect accessible projects."),
 		)
+		return err
+	default:
+		return fmt.Errorf("unsupported output format %q: use toon or json", format)
+	}
+}
+
+func writeAuthLogin(w io.Writer, format string, mode commandMode, result authLoginResult) error {
+	format = strings.ToLower(strings.TrimSpace(format))
+	if format == "" {
+		format = defaultOutputFormat(mode)
+	}
+
+	if mode == commandModeAxi {
+		return writeAxiAuthLogin(w, format, result)
+	}
+
+	switch format {
+	case "json":
+		encoder := json.NewEncoder(w)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(result)
+	case "text":
+		_, err := fmt.Fprintf(
+			w,
+			"username: %s\ndomain: %s\nbackend: %s\n",
+			result.Username,
+			result.Domain,
+			result.Backend,
+		)
+		return err
+	default:
+		return fmt.Errorf("unsupported output format %q: use text or json", format)
+	}
+}
+
+func writeAxiAuthLogin(w io.Writer, format string, result authLoginResult) error {
+	next := fmt.Sprintf("Credential stored for %s. Run whoami or mr to start working.", result.Domain)
+
+	switch format {
+	case "json":
+		encoder := json.NewEncoder(w)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(axiAuthLoginOutput{Login: result, Next: next})
+	case "toon":
+		_, err := fmt.Fprintf(
+			w,
+			"login{username,domain,backend}:\n  %s,%s,%s\nnext: %s\n",
+			toonValue(result.Username),
+			toonValue(result.Domain),
+			toonValue(result.Backend),
+			toonValue(next),
+		)
+		return err
+	default:
+		return fmt.Errorf("unsupported output format %q: use toon or json", format)
+	}
+}
+
+func writeAuthLogout(w io.Writer, format string, mode commandMode, result authLogoutResult) error {
+	format = strings.ToLower(strings.TrimSpace(format))
+	if format == "" {
+		format = defaultOutputFormat(mode)
+	}
+
+	if mode == commandModeAxi {
+		return writeAxiAuthLogout(w, format, result)
+	}
+
+	switch format {
+	case "json":
+		encoder := json.NewEncoder(w)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(result)
+	case "text":
+		_, err := fmt.Fprintf(
+			w,
+			"domain: %s\nremoved_from: %s\n",
+			result.Domain,
+			strings.Join(result.Backends, ", "),
+		)
+		return err
+	default:
+		return fmt.Errorf("unsupported output format %q: use text or json", format)
+	}
+}
+
+func writeAxiAuthLogout(w io.Writer, format string, result authLogoutResult) error {
+	next := "Credential removed. Run auth login <token> --gitlab-base-url <url> to authenticate again."
+
+	switch format {
+	case "json":
+		encoder := json.NewEncoder(w)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(axiAuthLogoutOutput{Logout: result, Next: next})
+	case "toon":
+		_, err := fmt.Fprintf(
+			w,
+			"logout{domain,backends}:\n  %s,%s\nnext: %s\n",
+			toonValue(result.Domain),
+			toonValue(strings.Join(result.Backends, " ")),
+			toonValue(next),
+		)
+		return err
+	default:
+		return fmt.Errorf("unsupported output format %q: use toon or json", format)
+	}
+}
+
+func writeAuthStatus(w io.Writer, format string, mode commandMode, result authStatusResult) error {
+	format = strings.ToLower(strings.TrimSpace(format))
+	if format == "" {
+		format = defaultOutputFormat(mode)
+	}
+
+	if mode == commandModeAxi {
+		return writeAxiAuthStatus(w, format, result)
+	}
+
+	switch format {
+	case "json":
+		encoder := json.NewEncoder(w)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(result)
+	case "text":
+		if _, err := fmt.Fprintf(
+			w,
+			"domain: %s\nauthenticated: %t\nbackends: %s\n",
+			result.Domain,
+			result.Authenticated,
+			strings.Join(result.Backends, ", "),
+		); err != nil {
+			return err
+		}
+		for _, warning := range result.Warnings {
+			if _, err := fmt.Fprintf(w, "warning: %s\n", warning); err != nil {
+				return err
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported output format %q: use text or json", format)
+	}
+}
+
+func writeAxiAuthStatus(w io.Writer, format string, result authStatusResult) error {
+	next := "Run auth login <token> --gitlab-base-url <url> to store a credential."
+	if result.Authenticated {
+		next = "Run whoami to verify the stored token still works."
+	}
+
+	switch format {
+	case "json":
+		encoder := json.NewEncoder(w)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(axiAuthStatusOutput{Status: result, Next: next})
+	case "toon":
+		if _, err := fmt.Fprintf(
+			w,
+			"status{domain,authenticated,backends}:\n  %s,%t,%s\n",
+			toonValue(result.Domain),
+			result.Authenticated,
+			toonValue(strings.Join(result.Backends, " ")),
+		); err != nil {
+			return err
+		}
+		for _, warning := range result.Warnings {
+			if _, err := fmt.Fprintf(w, "warning: %s\n", toonValue(warning)); err != nil {
+				return err
+			}
+		}
+		_, err := fmt.Fprintf(w, "next: %s\n", toonValue(next))
 		return err
 	default:
 		return fmt.Errorf("unsupported output format %q: use toon or json", format)
@@ -770,9 +975,21 @@ func writeCommandError(w io.Writer, mode commandMode, err error) {
 
 	code := "command_failed"
 	next := "Inspect the error message, fix the input or GitLab configuration, then retry."
-	if errors.Is(err, gitlabclient.ErrMissingToken) {
+	if errors.Is(err, errMissingExplicitBaseURL) {
+		code = "missing_gitlab_base_url"
+		next = "Pass --gitlab-base-url https://<gitlab-host> to auth login, then retry."
+	} else if errors.Is(err, errTokenVerification) {
+		code = "invalid_gitlab_token"
+		next = "Check the token value and scopes (read_api at minimum), then retry auth login."
+	} else if errors.Is(err, credstore.ErrNotFound) {
+		code = "no_stored_credential"
+		next = "Run auth status to inspect credential state or auth login <token> --gitlab-base-url <url> to store one."
+	} else if errors.Is(err, credstore.ErrCorruptCredentials) || errors.Is(err, credstore.ErrUnsupportedVersion) {
+		code = "credential_store_unreadable"
+		next = "Inspect or remove ~/.gl/credentials.json, then run auth login again."
+	} else if errors.Is(err, gitlabclient.ErrMissingToken) {
 		code = "missing_gitlab_token"
-		next = "Set GITLAB_TOKEN or pass --gitlab-token, then retry."
+		next = "Set GITLAB_TOKEN, pass --gitlab-token, or run auth login <token> --gitlab-base-url <url>, then retry."
 	} else if errors.Is(err, errMissingProject) {
 		code = "missing_gitlab_project"
 		next = "Run inside a git repository with remote origin configured or pass --project."

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/shabashab/community-gitlab-cli/internal/credstore"
 	"github.com/shabashab/community-gitlab-cli/internal/gitlabclient"
 	"github.com/spf13/cobra"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
@@ -78,6 +79,7 @@ func newRootCommand(use, short, long string, mode commandMode) *cobra.Command {
 	)
 
 	rootCmd.AddCommand(newWhoamiCommand(opts))
+	rootCmd.AddCommand(newAuthCommand(opts))
 	rootCmd.AddCommand(newProjectCommand(opts))
 	rootCmd.AddCommand(newMRCommand(opts))
 
@@ -85,11 +87,23 @@ func newRootCommand(use, short, long string, mode commandMode) *cobra.Command {
 }
 
 func (o *rootOptions) newGitLabClient() (*gitlab.Client, error) {
-	return gitlabclient.NewConfig(o.gitlabToken, o.gitlabBaseURL).NewClient()
+	return o.newGitLabClientWithBaseURLFallback(gitlabclient.DefaultBaseURL)
 }
 
 func (o *rootOptions) newGitLabClientWithBaseURLFallback(baseURL string) (*gitlab.Client, error) {
-	return gitlabclient.NewConfigWithBaseURLFallback(o.gitlabToken, o.gitlabBaseURL, baseURL).NewClient()
+	cfg := gitlabclient.NewConfigWithBaseURLFallback(o.gitlabToken, o.gitlabBaseURL, baseURL)
+
+	// Stored credentials are the last token source, keyed by the resolved
+	// host; lookup failures fall through to the missing-token error.
+	if cfg.Token == "" {
+		if domain, err := credstore.CanonicalDomain(cfg.BaseURL); err == nil {
+			if token, _, err := credstore.New().Get(domain); err == nil {
+				cfg.Token = token
+			}
+		}
+	}
+
+	return cfg.NewClient()
 }
 
 func execute(cmd *cobra.Command) {

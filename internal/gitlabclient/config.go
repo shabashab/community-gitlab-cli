@@ -48,7 +48,7 @@ func NewConfigWithBaseURLFallback(token, baseURL, fallbackBaseURL string) Config
 func (c Config) NewClient() (*gitlab.Client, error) {
 	c = c.withDefaults()
 	if c.Token == "" {
-		return nil, fmt.Errorf("%w: set %s or pass --gitlab-token", ErrMissingToken, TokenEnv)
+		return nil, fmt.Errorf("%w: set %s, pass --gitlab-token, or run auth login", ErrMissingToken, TokenEnv)
 	}
 
 	client, err := gitlab.NewClient(

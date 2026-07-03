@@ -142,7 +142,7 @@ func TestWriteCommandErrorSupportsAxi(t *testing.T) {
 	for _, fragment := range []string{
 		"error{code,message}:",
 		"missing_gitlab_token",
-		`next: "Set GITLAB_TOKEN or pass --gitlab-token, then retry."`,
+		`next: "Set GITLAB_TOKEN, pass --gitlab-token, or run auth login <token> --gitlab-base-url <url>, then retry."`,
 	} {
 		if !strings.Contains(out.String(), fragment) {
 			t.Fatalf("writeCommandError AXI output = %q, want fragment %q", out.String(), fragment)
