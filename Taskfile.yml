@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+tasks:
+  build:
+    desc: Build the project binaries
+    cmds:
+      - go build -o bin/gl ./cmd/gl
+      - go build -o bin/gl-axi ./cmd/gl-axi
+      - chmod +x bin/gl bin/gl-axi
+  run:
+    desc: Run the gl binary
+    cmds:
+      - bin/gl {{.CLI_ARGS}}
+    deps:
+      - build
+  run-axi:
+    desc: Run the gl-axi binary
+    cmds:
+      - bin/gl-axi {{.CLI_ARGS}}
+    deps:
+      - build
