@@ -21,6 +21,7 @@ The project also includes another binary, `gl-axi`, intended to be based on the 
 - `internal/cli/root.go`: shared Cobra root command definition and CLI initialization.
 - `internal/gitlabclient/config.go`: shared GitLab client-go configuration and client construction.
 - `internal/repo/discovery.go`: shared git origin discovery and remote URL parsing.
+- `internal/credstore/`: persistent credential storage (OS keychain with an encrypted-file fallback).
 - `go.mod`: Go module metadata and dependency declarations.
 - `go.sum`: Go dependency checksums.
 - `Taskfile.yml`: project task definitions for building and running the CLI.
@@ -114,7 +115,7 @@ task run-axi -- <subcommand> <args>
 
 Commands that call GitLab use the official `gitlab.com/gitlab-org/api/client-go/v2` package through the shared configuration in `internal/gitlabclient`.
 
-- Token: set `GITLAB_TOKEN` (preferred), `GL_TOKEN`, or pass `--gitlab-token`.
+- Token precedence: `--gitlab-token`, then `GITLAB_TOKEN`, then `GL_TOKEN`, then the credential stored by `gl auth login` for the resolved host.
 - Instance URL: set `GITLAB_BASE_URL` or pass `--gitlab-base-url`; defaults to `https://gitlab.com`.
 - `gl` output: pass `--output text` or `--output json`; default is `text`.
 - `gl-axi` output: pass `--output toon` or `--output json`; default is `toon`.
@@ -139,6 +140,21 @@ GITLAB_TOKEN=... task run -- project info
 GITLAB_TOKEN=... task run -- project info --project group/subgroup/project --output json
 GITLAB_TOKEN=... task run-axi -- project info --project 12345
 ```
+
+## Authentication
+
+The `auth` command stores a personal access token per GitLab host so later commands work without `GITLAB_TOKEN`.
+
+```sh
+gl auth login glpat-... --gitlab-base-url https://gitlab.com   # verify and store a token
+gl auth status                                                 # is a credential stored for this host?
+gl auth logout                                                 # remove the stored credential
+```
+
+- `auth login` requires an explicit `--gitlab-base-url` and verifies the token against the instance (`/user`) before storing anything. Passing the token as an argument may leave it in shell history; prefer substituting it from a password manager.
+- `auth logout` and `auth status` resolve the host like every other command: `--gitlab-base-url`, then `GITLAB_BASE_URL`, then the discovered git origin, then `https://gitlab.com`.
+- Credentials are stored in the OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service) when available. On headless systems the fallback is an encrypted file at `~/.gl/credentials.json` (`0700` directory, `0600` file) that contains neither the host nor the token in plaintext: hosts are stored as salted hashes and tokens are AES-256-GCM encrypted with a key derived from the host via Argon2id. This protects against opportunistic file scraping; it is not a defense against a targeted attacker who can guess common GitLab hostnames.
+- Explicit `--gitlab-token` or environment tokens always take precedence over stored credentials.
 
 ## Merge Requests
 
