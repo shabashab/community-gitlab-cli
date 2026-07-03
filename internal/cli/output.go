@@ -7,6 +7,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/shabashab/community-gitlab-cli/internal/gitlabclient"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
@@ -65,6 +66,73 @@ type projectOutput struct {
 type axiProjectInfoOutput struct {
 	Project projectOutput `json:"project"`
 	Next    string        `json:"next"`
+}
+
+type mergeRequestRowOutput struct {
+	IID          int64  `json:"iid"`
+	Title        string `json:"title"`
+	State        string `json:"state"`
+	Draft        bool   `json:"draft"`
+	Author       string `json:"author"`
+	SourceBranch string `json:"source_branch"`
+	TargetBranch string `json:"target_branch"`
+	UpdatedAt    string `json:"updated_at"`
+	WebURL       string `json:"web_url"`
+}
+
+type mergeRequestOutput struct {
+	IID                         int64    `json:"iid"`
+	Title                       string   `json:"title"`
+	State                       string   `json:"state"`
+	Draft                       bool     `json:"draft"`
+	Author                      string   `json:"author"`
+	Assignees                   []string `json:"assignees"`
+	Reviewers                   []string `json:"reviewers"`
+	SourceBranch                string   `json:"source_branch"`
+	TargetBranch                string   `json:"target_branch"`
+	Labels                      []string `json:"labels"`
+	Milestone                   string   `json:"milestone"`
+	DetailedMergeStatus         string   `json:"detailed_merge_status"`
+	HasConflicts                bool     `json:"has_conflicts"`
+	BlockingDiscussionsResolved bool     `json:"blocking_discussions_resolved"`
+	UserNotesCount              int64    `json:"user_notes_count"`
+	ChangesCount                string   `json:"changes_count"`
+	PipelineStatus              string   `json:"pipeline_status"`
+	SHA                         string   `json:"sha"`
+	CreatedAt                   string   `json:"created_at"`
+	UpdatedAt                   string   `json:"updated_at"`
+	MergedAt                    string   `json:"merged_at"`
+	ClosedAt                    string   `json:"closed_at"`
+	WebURL                      string   `json:"web_url"`
+	Description                 string   `json:"description"`
+}
+
+type mergeRequestListOutput struct {
+	MergeRequests []mergeRequestRowOutput `json:"merge_requests"`
+	Count         int                     `json:"count"`
+	Total         int64                   `json:"total"`
+	Page          int64                   `json:"page"`
+	TotalPages    int64                   `json:"total_pages"`
+}
+
+type axiMergeRequestViewOutput struct {
+	MergeRequest mergeRequestOutput `json:"merge_request"`
+	Next         string             `json:"next"`
+}
+
+type axiMergeRequestListOutput struct {
+	MergeRequests []mergeRequestRowOutput `json:"merge_requests"`
+	Count         int                     `json:"count"`
+	Total         int64                   `json:"total"`
+	Page          int64                   `json:"page"`
+	TotalPages    int64                   `json:"total_pages"`
+	Next          string                  `json:"next"`
+}
+
+type mrListPaging struct {
+	page       int64
+	totalItems int64
+	totalPages int64
 }
 
 func defaultOutputFormat(mode commandMode) string {
@@ -335,6 +403,365 @@ func projectToOutput(project *gitlab.Project) projectOutput {
 	return out
 }
 
+func writeMergeRequest(w io.Writer, format string, mode commandMode, mergeRequest *gitlab.MergeRequest, full bool) error {
+	if mergeRequest == nil {
+		return errors.New("gitlab api returned an empty merge request response")
+	}
+
+	format = strings.ToLower(strings.TrimSpace(format))
+	if format == "" {
+		format = defaultOutputFormat(mode)
+	}
+
+	out := mergeRequestToOutput(mergeRequest, full)
+
+	if mode == commandModeAxi {
+		return writeAxiMergeRequest(w, format, out, full)
+	}
+
+	switch format {
+	case "json":
+		encoder := json.NewEncoder(w)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(out)
+	case "text":
+		return writeMergeRequestText(w, out, full)
+	default:
+		return fmt.Errorf("unsupported output format %q: use text or json", format)
+	}
+}
+
+func writeMergeRequestText(w io.Writer, out mergeRequestOutput, full bool) error {
+	var err error
+	if full {
+		_, err = fmt.Fprintf(
+			w,
+			"iid: %d\ntitle: %s\nstate: %s\ndraft: %t\nauthor: %s\nassignees: %s\nreviewers: %s\nsource_branch: %s\ntarget_branch: %s\nlabels: %s\nmilestone: %s\ndetailed_merge_status: %s\nhas_conflicts: %t\nblocking_discussions_resolved: %t\nuser_notes_count: %d\nchanges_count: %s\npipeline_status: %s\nsha: %s\ncreated_at: %s\nupdated_at: %s\nmerged_at: %s\nclosed_at: %s\nweb_url: %s\n",
+			out.IID,
+			out.Title,
+			out.State,
+			out.Draft,
+			out.Author,
+			strings.Join(out.Assignees, ", "),
+			strings.Join(out.Reviewers, ", "),
+			out.SourceBranch,
+			out.TargetBranch,
+			strings.Join(out.Labels, ", "),
+			out.Milestone,
+			out.DetailedMergeStatus,
+			out.HasConflicts,
+			out.BlockingDiscussionsResolved,
+			out.UserNotesCount,
+			out.ChangesCount,
+			out.PipelineStatus,
+			out.SHA,
+			out.CreatedAt,
+			out.UpdatedAt,
+			out.MergedAt,
+			out.ClosedAt,
+			out.WebURL,
+		)
+	} else {
+		_, err = fmt.Fprintf(
+			w,
+			"iid: %d\ntitle: %s\nstate: %s\ndraft: %t\nauthor: %s\nsource_branch: %s\ntarget_branch: %s\ndetailed_merge_status: %s\nhas_conflicts: %t\nuser_notes_count: %d\nupdated_at: %s\nweb_url: %s\n",
+			out.IID,
+			out.Title,
+			out.State,
+			out.Draft,
+			out.Author,
+			out.SourceBranch,
+			out.TargetBranch,
+			out.DetailedMergeStatus,
+			out.HasConflicts,
+			out.UserNotesCount,
+			out.UpdatedAt,
+			out.WebURL,
+		)
+	}
+	if err != nil {
+		return err
+	}
+
+	_, err = fmt.Fprintf(w, "description:\n%s\n", out.Description)
+	return err
+}
+
+func writeAxiMergeRequest(w io.Writer, format string, out mergeRequestOutput, full bool) error {
+	next := "Use mr list to browse merge requests."
+	if !full {
+		next = "Use --full for all fields, or mr list to browse merge requests."
+	}
+
+	switch format {
+	case "json":
+		encoder := json.NewEncoder(w)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(axiMergeRequestViewOutput{
+			MergeRequest: out,
+			Next:         next,
+		})
+	case "toon":
+		return writeAxiMergeRequestTOON(w, out, full, next)
+	default:
+		return fmt.Errorf("unsupported output format %q: use toon or json", format)
+	}
+}
+
+func writeAxiMergeRequestTOON(w io.Writer, out mergeRequestOutput, full bool, next string) error {
+	var err error
+	if full {
+		_, err = fmt.Fprintf(
+			w,
+			"merge_request{iid,title,state,draft,author,assignees,reviewers,source_branch,target_branch,labels,milestone,detailed_merge_status,has_conflicts,blocking_discussions_resolved,user_notes_count,changes_count,pipeline_status,sha,created_at,updated_at,merged_at,closed_at,web_url}:\n  %d,%s,%s,%t,%s,%s,%s,%s,%s,%s,%s,%s,%t,%t,%d,%s,%s,%s,%s,%s,%s,%s,%s\n",
+			out.IID,
+			toonValue(out.Title),
+			toonValue(out.State),
+			out.Draft,
+			toonValue(out.Author),
+			toonValue(strings.Join(out.Assignees, ";")),
+			toonValue(strings.Join(out.Reviewers, ";")),
+			toonValue(out.SourceBranch),
+			toonValue(out.TargetBranch),
+			toonValue(strings.Join(out.Labels, ";")),
+			toonValue(out.Milestone),
+			toonValue(out.DetailedMergeStatus),
+			out.HasConflicts,
+			out.BlockingDiscussionsResolved,
+			out.UserNotesCount,
+			toonValue(out.ChangesCount),
+			toonValue(out.PipelineStatus),
+			toonValue(out.SHA),
+			toonValue(out.CreatedAt),
+			toonValue(out.UpdatedAt),
+			toonValue(out.MergedAt),
+			toonValue(out.ClosedAt),
+			toonValue(out.WebURL),
+		)
+	} else {
+		_, err = fmt.Fprintf(
+			w,
+			"merge_request{iid,title,state,draft,author,source_branch,target_branch,detailed_merge_status,has_conflicts,user_notes_count,updated_at,web_url}:\n  %d,%s,%s,%t,%s,%s,%s,%s,%t,%d,%s,%s\n",
+			out.IID,
+			toonValue(out.Title),
+			toonValue(out.State),
+			out.Draft,
+			toonValue(out.Author),
+			toonValue(out.SourceBranch),
+			toonValue(out.TargetBranch),
+			toonValue(out.DetailedMergeStatus),
+			out.HasConflicts,
+			out.UserNotesCount,
+			toonValue(out.UpdatedAt),
+			toonValue(out.WebURL),
+		)
+	}
+	if err != nil {
+		return err
+	}
+
+	_, err = fmt.Fprintf(w, "description: %s\nnext: %s\n", toonValue(out.Description), toonValue(next))
+	return err
+}
+
+func writeMergeRequestList(w io.Writer, format string, mode commandMode, mergeRequests []*gitlab.BasicMergeRequest, paging mrListPaging) error {
+	format = strings.ToLower(strings.TrimSpace(format))
+	if format == "" {
+		format = defaultOutputFormat(mode)
+	}
+
+	rows := make([]mergeRequestRowOutput, 0, len(mergeRequests))
+	for _, mergeRequest := range mergeRequests {
+		if mergeRequest == nil {
+			continue
+		}
+		rows = append(rows, basicMergeRequestToRow(mergeRequest))
+	}
+
+	if mode == commandModeAxi {
+		return writeAxiMergeRequestList(w, format, rows, paging)
+	}
+
+	switch format {
+	case "json":
+		encoder := json.NewEncoder(w)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(mergeRequestListOutput{
+			MergeRequests: rows,
+			Count:         len(rows),
+			Total:         paging.totalItems,
+			Page:          paging.page,
+			TotalPages:    paging.totalPages,
+		})
+	case "text":
+		return renderMergeRequestTable(w, rows, paging)
+	default:
+		return fmt.Errorf("unsupported output format %q: use text or json", format)
+	}
+}
+
+func writeAxiMergeRequestList(w io.Writer, format string, rows []mergeRequestRowOutput, paging mrListPaging) error {
+	next := "Use mr !<iid> for details, --page <n> for more results, or filters like --state/--author/--search/--label to narrow."
+	if len(rows) == 0 {
+		next = "No merge requests matched. Try --state all or relax other filters."
+	}
+
+	switch format {
+	case "json":
+		encoder := json.NewEncoder(w)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(axiMergeRequestListOutput{
+			MergeRequests: rows,
+			Count:         len(rows),
+			Total:         paging.totalItems,
+			Page:          paging.page,
+			TotalPages:    paging.totalPages,
+			Next:          next,
+		})
+	case "toon":
+		return writeAxiMergeRequestListTOON(w, rows, paging, next)
+	default:
+		return fmt.Errorf("unsupported output format %q: use toon or json", format)
+	}
+}
+
+func writeAxiMergeRequestListTOON(w io.Writer, rows []mergeRequestRowOutput, paging mrListPaging, next string) error {
+	if _, err := fmt.Fprintf(
+		w,
+		"merge_requests[%d]{iid,title,state,draft,author,source_branch,target_branch,updated_at}:\n",
+		len(rows),
+	); err != nil {
+		return err
+	}
+
+	for _, row := range rows {
+		if _, err := fmt.Fprintf(
+			w,
+			"  %d,%s,%s,%t,%s,%s,%s,%s\n",
+			row.IID,
+			toonValue(row.Title),
+			toonValue(row.State),
+			row.Draft,
+			toonValue(row.Author),
+			toonValue(row.SourceBranch),
+			toonValue(row.TargetBranch),
+			toonValue(row.UpdatedAt),
+		); err != nil {
+			return err
+		}
+	}
+
+	if len(rows) > 0 && paging.totalItems == 0 {
+		if _, err := fmt.Fprintf(w, "count: %d\n", len(rows)); err != nil {
+			return err
+		}
+	} else {
+		if _, err := fmt.Fprintf(w, "count: %d of %d total\n", len(rows), paging.totalItems); err != nil {
+			return err
+		}
+	}
+
+	_, err := fmt.Fprintf(w, "next: %s\n", toonValue(next))
+	return err
+}
+
+func mergeRequestToOutput(mergeRequest *gitlab.MergeRequest, full bool) mergeRequestOutput {
+	out := mergeRequestOutput{
+		IID:                         mergeRequest.IID,
+		Title:                       mergeRequest.Title,
+		State:                       mergeRequest.State,
+		Draft:                       mergeRequest.Draft,
+		Assignees:                   usernamesOf(mergeRequest.Assignees),
+		Reviewers:                   usernamesOf(mergeRequest.Reviewers),
+		SourceBranch:                mergeRequest.SourceBranch,
+		TargetBranch:                mergeRequest.TargetBranch,
+		Labels:                      []string(mergeRequest.Labels),
+		DetailedMergeStatus:         mergeRequest.DetailedMergeStatus,
+		HasConflicts:                mergeRequest.HasConflicts,
+		BlockingDiscussionsResolved: mergeRequest.BlockingDiscussionsResolved,
+		UserNotesCount:              mergeRequest.UserNotesCount,
+		ChangesCount:                mergeRequest.ChangesCount,
+		SHA:                         mergeRequest.SHA,
+		CreatedAt:                   formatTimeValue(mergeRequest.CreatedAt),
+		UpdatedAt:                   formatTimeValue(mergeRequest.UpdatedAt),
+		MergedAt:                    formatTimeValue(mergeRequest.MergedAt),
+		ClosedAt:                    formatTimeValue(mergeRequest.ClosedAt),
+		WebURL:                      mergeRequest.WebURL,
+		Description:                 mergeRequest.Description,
+	}
+	if mergeRequest.Author != nil {
+		out.Author = mergeRequest.Author.Username
+	}
+	if mergeRequest.Milestone != nil {
+		out.Milestone = mergeRequest.Milestone.Title
+	}
+	if mergeRequest.HeadPipeline != nil {
+		out.PipelineStatus = mergeRequest.HeadPipeline.Status
+	} else if mergeRequest.Pipeline != nil {
+		out.PipelineStatus = mergeRequest.Pipeline.Status
+	}
+	if !full {
+		out.Description = truncateWithHint(out.Description, descriptionTruncateLimit)
+	}
+
+	return out
+}
+
+func basicMergeRequestToRow(mergeRequest *gitlab.BasicMergeRequest) mergeRequestRowOutput {
+	row := mergeRequestRowOutput{
+		IID:          mergeRequest.IID,
+		Title:        mergeRequest.Title,
+		State:        mergeRequest.State,
+		Draft:        mergeRequest.Draft,
+		SourceBranch: mergeRequest.SourceBranch,
+		TargetBranch: mergeRequest.TargetBranch,
+		UpdatedAt:    formatTimeValue(mergeRequest.UpdatedAt),
+		WebURL:       mergeRequest.WebURL,
+	}
+	if mergeRequest.Author != nil {
+		row.Author = mergeRequest.Author.Username
+	}
+
+	return row
+}
+
+func usernamesOf(users []*gitlab.BasicUser) []string {
+	if len(users) == 0 {
+		return nil
+	}
+
+	names := make([]string, 0, len(users))
+	for _, user := range users {
+		if user == nil {
+			continue
+		}
+		names = append(names, user.Username)
+	}
+
+	return names
+}
+
+func formatTimeValue(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+
+	return t.Format("2006-01-02T15:04:05Z07:00")
+}
+
+func truncateWithHint(value string, limit int) string {
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+
+	return fmt.Sprintf(
+		"%s… (truncated, %d chars total — use --full for the complete description)",
+		string(runes[:limit]),
+		len(runes),
+	)
+}
+
 func writeCommandError(w io.Writer, mode commandMode, err error) {
 	if mode != commandModeAxi {
 		fmt.Fprintln(w, err)
@@ -349,6 +776,12 @@ func writeCommandError(w io.Writer, mode commandMode, err error) {
 	} else if errors.Is(err, errMissingProject) {
 		code = "missing_gitlab_project"
 		next = "Run inside a git repository with remote origin configured or pass --project."
+	} else if errors.Is(err, errInvalidMergeRequestRef) {
+		code = "invalid_merge_request_ref"
+		next = "Reference merge requests as !<iid> or <iid>, for example mr !123."
+	} else if errors.Is(err, errUnknownMergeRequestAction) {
+		code = "unknown_merge_request_action"
+		next = "Supported per-merge-request actions: view. Run mr --help for usage."
 	}
 
 	fmt.Fprintf(

@@ -140,6 +140,27 @@ GITLAB_TOKEN=... task run -- project info --project group/subgroup/project --out
 GITLAB_TOKEN=... task run-axi -- project info --project 12345
 ```
 
+## Merge Requests
+
+The `mr` command works with merge requests in the current project (or `--project`).
+
+Reference a specific merge request as `!<iid>` or plain `<iid>`. In bash and zsh, quote the bang form (`'!123'`) to avoid shell history expansion; plain `123` always works unquoted.
+
+```sh
+gl mr                          # list open merge requests (same as gl mr list)
+gl mr list --state all --author octocat --search "search endpoint"
+gl mr list --label backend --label search --target-branch main --draft=false
+gl mr list --order-by updated_at --sort asc --limit 50 --page 2
+gl mr '!123'                   # show one merge request (compact fields)
+gl mr 123 --full               # all fields and the complete description
+gl mr view '!123'              # explicit subcommand form, same behavior
+```
+
+- `gl mr list` renders a table; `--output json` returns `{merge_requests, count, total, page, total_pages}`.
+- Merge request descriptions are truncated by default with a size hint; pass `--full` for the complete body and all fields.
+- `gl-axi mr` behaves the same but prints compact TOON rows with a `count: N of M total` line and contextual `next` hints, keeping default responses token-frugal for agents.
+- List filters: `--state`, `--search`, `--label`, `--author`, `--reviewer`, `--source-branch`, `--target-branch`, `--draft`, `--milestone`, `--order-by`, `--sort`, `--limit`, `--page`.
+
 ## Development Notes
 
 - Keep generated binaries and transient local outputs out of source changes unless explicitly requested.

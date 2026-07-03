@@ -79,6 +79,7 @@ func newRootCommand(use, short, long string, mode commandMode) *cobra.Command {
 
 	rootCmd.AddCommand(newWhoamiCommand(opts))
 	rootCmd.AddCommand(newProjectCommand(opts))
+	rootCmd.AddCommand(newMRCommand(opts))
 
 	return rootCmd
 }

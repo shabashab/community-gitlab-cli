@@ -12,6 +12,7 @@ The project includes another binary named `gl-axi`. That binary is intended to b
 - Module: `github.com/shabashab/community-gitlab-cli`
 - CLI framework: Cobra (`github.com/spf13/cobra`)
 - GitLab API client: `gitlab.com/gitlab-org/api/client-go/v2`
+- Table rendering: `github.com/jedib0t/go-pretty/v6`, imported only by `internal/cli/mr_table.go` so the library can be swapped in one place
 - Task runner: Taskfile v3 (`Taskfile.yml`)
 - Primary binary: `gl`, built into `bin/gl`
 - Additional binary: `gl-axi`, built into `bin/gl-axi`
@@ -21,6 +22,9 @@ The project includes another binary named `gl-axi`. That binary is intended to b
 - `cmd/gl/main.go`: `gl` application entry point; calls `cli.Execute()`.
 - `cmd/gl-axi/main.go`: `gl-axi` application entry point; calls `cli.ExecuteAxi()`.
 - `internal/cli/root.go`: shared Cobra root command definition and CLI initialization.
+- `internal/cli/mr.go`: `mr` command suite (`list`, `view`, and `!<iid>` dispatch) and merge request run functions.
+- `internal/cli/mr_table.go`: standard-mode merge request table rendering; the only file importing go-pretty.
+- `internal/cli/output.go`: per-resource output structs and text/json/toon writers, plus structured error rendering.
 - `internal/gitlabclient/config.go`: shared GitLab client-go configuration and client construction.
 - `internal/repo/discovery.go`: shared git origin discovery and remote URL parsing.
 - `go.mod`: Go module metadata and dependency declarations.
@@ -128,7 +132,9 @@ Project-aware commands use `internal/repo` to discover the current project from 
 
 - `gl`: default `--output text`; supports `text` and `json`; normal stderr errors.
 - `gl-axi`: default `--output toon`; supports `toon` and `json`; compact fields, contextual `next` hints, structured TOON-style errors, and content-first root behavior.
-- Running `gl-axi` with no subcommand should show live data, not help. While `whoami` is the only GitLab-backed command, the root dashboard delegates to `whoami`.
+- Running `gl-axi` with no subcommand should show live data, not help. The root dashboard currently delegates to `whoami`.
+- Merge request commands live under `mr`: bare `mr` lists open merge requests (content-first in both modes), `mr !<iid>` / `mr <iid>` shows one, `--full` expands the truncated description and adds all fields. The `!<iid>` dispatch happens in the `mr` parent command's `RunE`; extend its action switch when adding per-merge-request actions such as `diff` or `notes`.
+- Token-frugal defaults for agents: merge request view returns a compact field set with the description truncated at 500 runes and an inline size hint; list rows are 8 compact columns with a `count: N of M total` line. Keep new axi output narrow by default and put escape hatches behind flags like `--full`.
 
 To inspect the actual upstream implementation:
 
