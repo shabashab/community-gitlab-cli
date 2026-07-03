@@ -104,6 +104,10 @@ func newRootCommand(use, short, long string, mode commandMode) (*cobra.Command, 
 	rootCmd.AddCommand(newAuthCommand(opts))
 	rootCmd.AddCommand(newProjectCommand(opts))
 	rootCmd.AddCommand(newMRCommand(opts))
+	if mode == commandModeAxi {
+		rootCmd.AddCommand(newSetupCommand(opts))
+		rootCmd.AddCommand(newContextCommand(opts))
+	}
 
 	return rootCmd, opts
 }
