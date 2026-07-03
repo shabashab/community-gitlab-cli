@@ -20,6 +20,7 @@ The project also includes another binary, `gl-axi`, intended to be based on the 
 - `cmd/gl-axi/main.go`: `gl-axi` application entry point; calls `cli.ExecuteAxi()`.
 - `internal/cli/root.go`: shared Cobra root command definition and CLI initialization.
 - `internal/gitlabclient/config.go`: shared GitLab client-go configuration and client construction.
+- `internal/repo/discovery.go`: shared git origin discovery and remote URL parsing.
 - `go.mod`: Go module metadata and dependency declarations.
 - `go.sum`: Go dependency checksums.
 - `Taskfile.yml`: project task definitions for building and running the CLI.
@@ -118,6 +119,15 @@ Commands that call GitLab use the official `gitlab.com/gitlab-org/api/client-go/
 - `gl` output: pass `--output text` or `--output json`; default is `text`.
 - `gl-axi` output: pass `--output toon` or `--output json`; default is `toon`.
 
+Project-aware commands can discover the current GitLab project from the local git repository by reading only `remote.origin.url`. The discovered origin supplies both the project path and, when no explicit instance URL is configured, the GitLab host. Instance URL precedence is:
+
+1. `--gitlab-base-url`
+2. `GITLAB_BASE_URL`
+3. discovered `origin` host
+4. `https://gitlab.com`
+
+Pass `--project` to select a project explicitly when running outside that project's directory. It accepts either a numeric GitLab project ID or a full path such as `group/subgroup/project`.
+
 `gl-axi` uses the same GitLab client and command behavior as `gl`, but changes presentation for agent ergonomics: compact TOON-style output, minimal fields, contextual `next` hints, structured errors, and content-first root behavior. Running `gl-axi` with no subcommand runs the current live dashboard behavior, which currently resolves to `whoami`.
 
 Example:
@@ -125,6 +135,9 @@ Example:
 ```sh
 GITLAB_TOKEN=... task run -- whoami --output json
 GITLAB_TOKEN=... task run-axi -- whoami
+GITLAB_TOKEN=... task run -- project info
+GITLAB_TOKEN=... task run -- project info --project group/subgroup/project --output json
+GITLAB_TOKEN=... task run-axi -- project info --project 12345
 ```
 
 ## Development Notes

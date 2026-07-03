@@ -78,12 +78,17 @@ func newRootCommand(use, short, long string, mode commandMode) *cobra.Command {
 	)
 
 	rootCmd.AddCommand(newWhoamiCommand(opts))
+	rootCmd.AddCommand(newProjectCommand(opts))
 
 	return rootCmd
 }
 
 func (o *rootOptions) newGitLabClient() (*gitlab.Client, error) {
 	return gitlabclient.NewConfig(o.gitlabToken, o.gitlabBaseURL).NewClient()
+}
+
+func (o *rootOptions) newGitLabClientWithBaseURLFallback(baseURL string) (*gitlab.Client, error) {
+	return gitlabclient.NewConfigWithBaseURLFallback(o.gitlabToken, o.gitlabBaseURL, baseURL).NewClient()
 }
 
 func execute(cmd *cobra.Command) {

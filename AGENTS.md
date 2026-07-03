@@ -22,6 +22,7 @@ The project includes another binary named `gl-axi`. That binary is intended to b
 - `cmd/gl-axi/main.go`: `gl-axi` application entry point; calls `cli.ExecuteAxi()`.
 - `internal/cli/root.go`: shared Cobra root command definition and CLI initialization.
 - `internal/gitlabclient/config.go`: shared GitLab client-go configuration and client construction.
+- `internal/repo/discovery.go`: shared git origin discovery and remote URL parsing.
 - `go.mod`: Go module metadata and dependency declarations.
 - `go.sum`: Go dependency checksums.
 - `Taskfile.yml`: project task definitions for building and running the CLI.
@@ -120,6 +121,8 @@ Configuration contract:
 - Token: prefer `GITLAB_TOKEN`; `GL_TOKEN` and `--gitlab-token` are also supported.
 - Instance URL: use `GITLAB_BASE_URL` or `--gitlab-base-url`; default is `https://gitlab.com`.
 - `client-go` accepts either the GitLab root URL or an `/api/v4` URL and normalizes the API path internally.
+
+Project-aware commands use `internal/repo` to discover the current project from `remote.origin.url`. Only the remote named `origin` is read by default. Instance URL precedence for project-aware commands is `--gitlab-base-url`, then `GITLAB_BASE_URL`, then the discovered origin host, then `https://gitlab.com`. Use the shared `--project` flag for commands that need an explicit project outside the current repository; it accepts either a numeric GitLab project ID or a full path such as `group/subgroup/project`.
 
 `gl` and `gl-axi` share GitLab API behavior. Keep GitLab API calls in shared command code and branch only at the presentation/ergonomics layer through the root command mode:
 

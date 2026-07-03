@@ -30,9 +30,15 @@ type Config struct {
 // NewConfig builds a client config from explicit CLI values, then environment
 // variables, then project defaults.
 func NewConfig(token, baseURL string) Config {
+	return NewConfigWithBaseURLFallback(token, baseURL, DefaultBaseURL)
+}
+
+// NewConfigWithBaseURLFallback builds a client config using fallbackBaseURL
+// after explicit CLI values and environment variables.
+func NewConfigWithBaseURLFallback(token, baseURL, fallbackBaseURL string) Config {
 	return Config{
 		Token:     firstNonEmpty(token, os.Getenv(TokenEnv), os.Getenv(AlternateTokenEnv)),
-		BaseURL:   firstNonEmpty(baseURL, os.Getenv(BaseURLEnv), DefaultBaseURL),
+		BaseURL:   firstNonEmpty(baseURL, os.Getenv(BaseURLEnv), fallbackBaseURL, DefaultBaseURL),
 		UserAgent: DefaultUserAgent,
 	}
 }

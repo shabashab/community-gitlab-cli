@@ -35,6 +35,28 @@ func TestNewConfigFallsBackToEnvironmentAndDefaults(t *testing.T) {
 	}
 }
 
+func TestNewConfigWithBaseURLFallbackPrecedence(t *testing.T) {
+	t.Setenv(TokenEnv, "")
+	t.Setenv(AlternateTokenEnv, "alternate-token")
+	t.Setenv(BaseURLEnv, "https://env.gitlab.example")
+
+	cfg := NewConfigWithBaseURLFallback("", "", "https://origin.gitlab.example")
+	if cfg.BaseURL != "https://env.gitlab.example" {
+		t.Fatalf("BaseURL = %q, want env base URL", cfg.BaseURL)
+	}
+
+	cfg = NewConfigWithBaseURLFallback("", "https://flag.gitlab.example", "https://origin.gitlab.example")
+	if cfg.BaseURL != "https://flag.gitlab.example" {
+		t.Fatalf("BaseURL = %q, want explicit base URL", cfg.BaseURL)
+	}
+
+	t.Setenv(BaseURLEnv, "")
+	cfg = NewConfigWithBaseURLFallback("", "", "https://origin.gitlab.example")
+	if cfg.BaseURL != "https://origin.gitlab.example" {
+		t.Fatalf("BaseURL = %q, want fallback base URL", cfg.BaseURL)
+	}
+}
+
 func TestNewClientRequiresToken(t *testing.T) {
 	_, err := Config{BaseURL: DefaultBaseURL}.NewClient()
 	if !errors.Is(err, ErrMissingToken) {
