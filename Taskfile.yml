@@ -9,6 +9,10 @@ tasks:
       - go build -o bin/gl ./cmd/gl
       - go build -o bin/gl-axi ./cmd/gl-axi
       - chmod +x bin/gl bin/gl-axi
+  install:
+    desc: Install gl and gl-axi into GOBIN (defaults to ~/go/bin)
+    cmds:
+      - go install ./cmd/gl ./cmd/gl-axi
   test:
     desc: Run Go tests
     cmds:

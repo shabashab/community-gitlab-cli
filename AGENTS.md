@@ -78,6 +78,15 @@ task run -- --help
 task run -- <subcommand> <args>
 ```
 
+### `task install`
+
+Installs both CLI binaries into `GOBIN` (defaults to `~/go/bin`) via `go install ./cmd/gl ./cmd/gl-axi`.
+
+When to run it:
+
+- When you want `gl` and `gl-axi` available on `PATH` outside the repository.
+- After changes you want reflected in the locally installed binaries.
+
 ### `task test`
 
 Runs Go tests with `go test ./...`.
