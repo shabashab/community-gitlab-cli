@@ -115,12 +115,16 @@ Commands that call GitLab use the official `gitlab.com/gitlab-org/api/client-go/
 
 - Token: set `GITLAB_TOKEN` (preferred), `GL_TOKEN`, or pass `--gitlab-token`.
 - Instance URL: set `GITLAB_BASE_URL` or pass `--gitlab-base-url`; defaults to `https://gitlab.com`.
-- Output: pass `--output text` or `--output json`.
+- `gl` output: pass `--output text` or `--output json`; default is `text`.
+- `gl-axi` output: pass `--output toon` or `--output json`; default is `toon`.
+
+`gl-axi` uses the same GitLab client and command behavior as `gl`, but changes presentation for agent ergonomics: compact TOON-style output, minimal fields, contextual `next` hints, structured errors, and content-first root behavior. Running `gl-axi` with no subcommand runs the current live dashboard behavior, which currently resolves to `whoami`.
 
 Example:
 
 ```sh
 GITLAB_TOKEN=... task run -- whoami --output json
+GITLAB_TOKEN=... task run-axi -- whoami
 ```
 
 ## Development Notes

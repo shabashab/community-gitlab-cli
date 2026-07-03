@@ -121,6 +121,12 @@ Configuration contract:
 - Instance URL: use `GITLAB_BASE_URL` or `--gitlab-base-url`; default is `https://gitlab.com`.
 - `client-go` accepts either the GitLab root URL or an `/api/v4` URL and normalizes the API path internally.
 
+`gl` and `gl-axi` share GitLab API behavior. Keep GitLab API calls in shared command code and branch only at the presentation/ergonomics layer through the root command mode:
+
+- `gl`: default `--output text`; supports `text` and `json`; normal stderr errors.
+- `gl-axi`: default `--output toon`; supports `toon` and `json`; compact fields, contextual `next` hints, structured TOON-style errors, and content-first root behavior.
+- Running `gl-axi` with no subcommand should show live data, not help. While `whoami` is the only GitLab-backed command, the root dashboard delegates to `whoami`.
+
 To inspect the actual upstream implementation:
 
 ```sh
@@ -141,6 +147,40 @@ Helpful starting points inside the client-go source:
 - `<resource>.go`: service interfaces, request option structs, and API methods for a GitLab resource.
 - `request_options.go`: per-request options such as `gitlab.WithContext`.
 - `testing/`: generated service mocks from the upstream project when a future command needs interface-driven tests.
+
+## Commit Message Policy
+
+Use Conventional Commits for every commit. The required format is:
+
+```text
+<type>(optional-scope)!: <description>
+```
+
+Allowed commit types are strict:
+
+- `feat`: user-visible feature or new capability.
+- `fix`: bug fix or incorrect behavior correction.
+- `docs`: documentation-only change.
+- `style`: formatting-only change with no behavior impact.
+- `refactor`: code restructuring that does not add features or fix bugs.
+- `perf`: performance improvement.
+- `test`: adding or changing tests only.
+- `build`: build system, dependency, module, or packaging change.
+- `ci`: continuous integration or automation workflow change.
+- `chore`: maintenance task that does not fit another type.
+- `revert`: revert of a previous commit.
+
+Do not use vague or non-standard types such as `update`, `change`, `misc`, `wip`, `cleanup`, or `improve`. Use a scope when it adds useful routing context, for example `feat(cli): add project list command`, `fix(gitlabclient): validate missing token`, or `docs(agents): document commit policy`.
+
+Use `!` after the type or scope for breaking changes, and include a `BREAKING CHANGE:` footer when the impact needs explanation:
+
+```text
+feat(cli)!: rename output flag
+
+BREAKING CHANGE: --format replaces --output for all commands.
+```
+
+Keep the description imperative, concise, and specific. Prefer one logical change per commit.
 
 ## Notes For Agents
 

@@ -26,10 +26,21 @@ type rootOptions struct {
 	gitlabToken   string
 	gitlabBaseURL string
 	output        string
+	mode          commandMode
 }
 
-func newRootCommand(use, short, long string) *cobra.Command {
-	opts := &rootOptions{}
+type commandMode string
+
+const (
+	commandModeStandard commandMode = "standard"
+	commandModeAxi      commandMode = "axi"
+)
+
+func newRootCommand(use, short, long string, mode commandMode) *cobra.Command {
+	opts := &rootOptions{
+		output: defaultOutputFormat(mode),
+		mode:   mode,
+	}
 
 	rootCmd := &cobra.Command{
 		Use:           use,
@@ -37,6 +48,13 @@ func newRootCommand(use, short, long string) *cobra.Command {
 		Long:          long,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if opts.mode == commandModeAxi {
+				return runWhoami(cmd, opts)
+			}
+
+			return cmd.Help()
+		},
 	}
 
 	rootCmd.PersistentFlags().StringVar(
@@ -55,8 +73,8 @@ func newRootCommand(use, short, long string) *cobra.Command {
 		&opts.output,
 		"output",
 		"o",
-		"text",
-		"Output format: text, json",
+		opts.output,
+		fmt.Sprintf("Output format: %s", outputFormats(mode)),
 	)
 
 	rootCmd.AddCommand(newWhoamiCommand(opts))
@@ -70,7 +88,14 @@ func (o *rootOptions) newGitLabClient() (*gitlab.Client, error) {
 
 func execute(cmd *cobra.Command) {
 	if err := cmd.Execute(); err != nil {
-		fmt.Fprintln(cmd.ErrOrStderr(), err)
+		writeCommandError(cmd.ErrOrStderr(), commandModeStandard, err)
+		os.Exit(1)
+	}
+}
+
+func executeAxi(cmd *cobra.Command) {
+	if err := cmd.Execute(); err != nil {
+		writeCommandError(cmd.ErrOrStderr(), commandModeAxi, err)
 		os.Exit(1)
 	}
 }
@@ -81,14 +106,16 @@ func Execute() {
 		"gl",
 		"Community GitLab CLI for agentic workflows",
 		glLongDescription,
+		commandModeStandard,
 	))
 }
 
 // ExecuteAxi runs the axi-oriented gl-axi binary entry point.
 func ExecuteAxi() {
-	execute(newRootCommand(
+	executeAxi(newRootCommand(
 		"gl-axi",
 		"Axi-oriented Community GitLab CLI for agentic workflows",
 		glAxiLongDescription,
+		commandModeAxi,
 	))
 }

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -13,17 +14,26 @@ func newWhoamiCommand(opts *rootOptions) *cobra.Command {
 		Short: "Show the authenticated GitLab user",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			client, err := opts.newGitLabClient()
-			if err != nil {
-				return err
-			}
-
-			user, _, err := client.Users.CurrentUser(gitlab.WithContext(cmd.Context()))
-			if err != nil {
-				return fmt.Errorf("get current GitLab user: %w", err)
-			}
-
-			return writeUser(cmd.OutOrStdout(), opts.output, user)
+			return runWhoami(cmd, opts)
 		},
 	}
+}
+
+func runWhoami(cmd *cobra.Command, opts *rootOptions) error {
+	client, err := opts.newGitLabClient()
+	if err != nil {
+		return err
+	}
+
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	user, _, err := client.Users.CurrentUser(gitlab.WithContext(ctx))
+	if err != nil {
+		return fmt.Errorf("get current GitLab user: %w", err)
+	}
+
+	return writeUser(cmd.OutOrStdout(), opts.output, opts.mode, user)
 }
