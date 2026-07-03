@@ -46,7 +46,7 @@ authenticate without GITLAB_TOKEN.
 GITLAB_BASE_URL environment variable is not accepted for login. Passing the
 token as an argument may leave it in shell history — prefer reading it from a
 password manager, for example: gl auth login "$(pass show gitlab/token)" ...`,
-		Args: cobra.ExactArgs(1),
+		Args: wrapArgsValidator(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runAuthLogin(cmd, rootOpts, args[0])
 		},
@@ -57,7 +57,7 @@ func newAuthLogoutCommand(rootOpts *rootOptions) *cobra.Command {
 	return &cobra.Command{
 		Use:   "logout",
 		Short: "Remove the stored credential for a GitLab host",
-		Args:  cobra.NoArgs,
+		Args:  wrapArgsValidator(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runAuthLogout(cmd, rootOpts)
 		},
@@ -68,7 +68,7 @@ func newAuthStatusCommand(rootOpts *rootOptions) *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
 		Short: "Show stored credential state for a GitLab host",
-		Args:  cobra.NoArgs,
+		Args:  wrapArgsValidator(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runAuthStatus(cmd, rootOpts)
 		},
@@ -124,6 +124,16 @@ func runAuthLogout(cmd *cobra.Command, rootOpts *rootOptions) error {
 
 	backends, err := credstore.New().Delete(domain)
 	if err != nil {
+		// Logging out with nothing stored is the desired state already —
+		// acknowledge as a no-op instead of failing (axi guide §6).
+		if errors.Is(err, credstore.ErrNotFound) {
+			return writeAuthLogout(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, authLogoutResult{
+				Domain:   domain,
+				Backends: []string{},
+				Noop:     true,
+			})
+		}
+
 		return fmt.Errorf("remove credential for %s: %w", domain, err)
 	}
 

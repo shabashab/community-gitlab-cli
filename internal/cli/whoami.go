@@ -12,7 +12,7 @@ func newWhoamiCommand(opts *rootOptions) *cobra.Command {
 	return &cobra.Command{
 		Use:   "whoami",
 		Short: "Show the authenticated GitLab user",
-		Args:  cobra.NoArgs,
+		Args:  wrapArgsValidator(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runWhoami(cmd, opts)
 		},

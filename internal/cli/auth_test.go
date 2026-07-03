@@ -150,7 +150,7 @@ func TestRunAuthLogoutRemovesCredential(t *testing.T) {
 	}
 }
 
-func TestRunAuthLogoutWithoutCredential(t *testing.T) {
+func TestRunAuthLogoutWithoutCredentialIsNoop(t *testing.T) {
 	setupAuthTest(t)
 
 	var out bytes.Buffer
@@ -159,8 +159,32 @@ func TestRunAuthLogoutWithoutCredential(t *testing.T) {
 		output:        "text",
 		mode:          commandModeStandard,
 	})
-	if !errors.Is(err, credstore.ErrNotFound) {
-		t.Fatalf("runAuthLogout error = %v, want ErrNotFound", err)
+	if err != nil {
+		t.Fatalf("runAuthLogout error = %v, want idempotent no-op success", err)
+	}
+	if !strings.Contains(out.String(), "no stored credential (no-op)") {
+		t.Fatalf("runAuthLogout output = %q, want no-op acknowledgment", out.String())
+	}
+}
+
+func TestRunAuthLogoutWithoutCredentialAxiNoop(t *testing.T) {
+	setupAuthTest(t)
+
+	var out bytes.Buffer
+	err := runAuthLogout(newAuthTestCommand(&out), &rootOptions{
+		gitlabBaseURL: "https://gitlab.example.com",
+		output:        "toon",
+		mode:          commandModeAxi,
+	})
+	if err != nil {
+		t.Fatalf("runAuthLogout error = %v, want idempotent no-op success", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "noop: true") {
+		t.Fatalf("runAuthLogout axi output = %q, want noop marker", got)
+	}
+	if !strings.Contains(got, "backends[0]:") {
+		t.Fatalf("runAuthLogout axi output = %q, want empty backends array", got)
 	}
 }
 
@@ -201,9 +225,10 @@ func TestRunAuthStatusShapes(t *testing.T) {
 			output: "toon",
 			mode:   commandModeAxi,
 			fragments: []string{
-				"status{domain,authenticated,backends}:",
-				"gitlab.example.com,true,keyring",
-				"next: ",
+				"status:\n  domain: gitlab.example.com",
+				"authenticated: true",
+				"backends[1]: keyring",
+				"help[1]: ",
 			},
 		},
 	}
@@ -335,8 +360,8 @@ func TestWriteCommandErrorAuthCodes(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			var out bytes.Buffer
-			writeCommandError(&out, commandModeAxi, testCase.err)
-			if !strings.Contains(out.String(), testCase.code) {
+			writeCommandError(&out, commandModeAxi, "toon", "gl-axi", testCase.err)
+			if !strings.Contains(out.String(), "code: "+testCase.code) {
 				t.Fatalf("writeCommandError output = %q, want code %q", out.String(), testCase.code)
 			}
 		})

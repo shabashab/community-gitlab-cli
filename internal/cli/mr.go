@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -20,6 +19,12 @@ const (
 	defaultMergeRequestListLimit int64 = 20
 	descriptionTruncateLimit           = 500
 )
+
+// mrListExtraFields are the optional axi list columns that --fields can add
+// to the compact default schema (iid, title, state, author).
+var mrListExtraFields = []string{"draft", "source_branch", "target_branch", "updated_at", "web_url"}
+
+var mrListDefaultFields = []string{"iid", "title", "state", "author"}
 
 type mrViewOptions struct {
 	full bool
@@ -40,6 +45,7 @@ type mrListOptions struct {
 	sort         string
 	limit        int64
 	page         int64
+	fields       []string
 }
 
 func newMRListOptions() *mrListOptions {
@@ -53,6 +59,7 @@ func newMRListOptions() *mrListOptions {
 func newMRCommand(rootOpts *rootOptions) *cobra.Command {
 	projOpts := &projectOptions{}
 	viewOpts := &mrViewOptions{}
+	listOpts := newMRListOptions()
 
 	cmd := &cobra.Command{
 		Use:   "mr [!<iid>] [action]",
@@ -62,10 +69,12 @@ func newMRCommand(rootOpts *rootOptions) *cobra.Command {
 Running mr with no arguments lists open merge requests. Reference a specific
 merge request as !<iid> or <iid>, for example "mr !123" or "mr 123". In bash
 and zsh, quote the bang form ('!123') to avoid shell history expansion.`,
-		Args: cobra.ArbitraryArgs,
+		Args: wrapArgsValidator(cobra.MaximumNArgs(2)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
-				return runMRList(cmd, rootOpts, projOpts, newMRListOptions())
+				listOpts.fields = nil
+
+				return runMRList(cmd, rootOpts, projOpts, listOpts)
 			}
 
 			if args[0] == "help" {
@@ -86,12 +95,12 @@ and zsh, quote the bang form ('!123') to avoid shell history expansion.`,
 			case "view", "info":
 				return runMRView(cmd, rootOpts, projOpts, viewOpts, iid)
 			default:
-				return fmt.Errorf(
-					"%w %q for merge request !%d: supported actions: view",
+				return newUsageError(fmt.Errorf(
+					"%w %q for merge request !%d: supported actions: view (alias: info)",
 					errUnknownMergeRequestAction,
 					action,
 					iid,
-				)
+				))
 			}
 		},
 	}
@@ -117,13 +126,21 @@ and zsh, quote the bang form ('!123') to avoid shell history expansion.`,
 
 func newMRListCommand(rootOpts *rootOptions, projOpts *projectOptions) *cobra.Command {
 	opts := newMRListOptions()
+	var fieldsFlag string
 
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List and search merge requests in a project",
-		Args:  cobra.NoArgs,
+		Args:  wrapArgsValidator(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts.draftSet = cmd.Flags().Changed("draft")
+
+			fields, err := parseMRListFields(fieldsFlag)
+			if err != nil {
+				return err
+			}
+			opts.fields = fields
+
 			return runMRList(cmd, rootOpts, projOpts, opts)
 		},
 	}
@@ -142,8 +159,66 @@ func newMRListCommand(rootOpts *rootOptions, projOpts *projectOptions) *cobra.Co
 	flags.StringVar(&opts.sort, "sort", "", "Sort direction: asc or desc (API default desc)")
 	flags.Int64Var(&opts.limit, "limit", opts.limit, "Results per page (GitLab max 100)")
 	flags.Int64Var(&opts.page, "page", opts.page, "Result page to fetch")
+	flags.StringVar(
+		&fieldsFlag,
+		"fields",
+		"",
+		fmt.Sprintf("Comma-separated extra columns to add to the compact schema: %s", strings.Join(mrListExtraFields, ", ")),
+	)
 
 	return cmd
+}
+
+// parseMRListFields validates a --fields value and returns the extra columns
+// in canonical order. Unknown names fail loud with the valid set inline.
+func parseMRListFields(value string) ([]string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+
+	requested := map[string]bool{}
+	for _, name := range strings.Split(value, ",") {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+
+		known := false
+		for _, extra := range mrListExtraFields {
+			if name == extra {
+				known = true
+				break
+			}
+		}
+		for _, def := range mrListDefaultFields {
+			if name == def {
+				known = true // defaults are always emitted; requesting them is a no-op
+				break
+			}
+		}
+		if !known {
+			return nil, newUsageError(
+				fmt.Errorf("unknown field %q for --fields", name),
+				fmt.Sprintf(
+					"Valid --fields values: %s (defaults always included: %s)",
+					strings.Join(mrListExtraFields, ", "),
+					strings.Join(mrListDefaultFields, ", "),
+				),
+			)
+		}
+
+		requested[name] = true
+	}
+
+	var fields []string
+	for _, extra := range mrListExtraFields {
+		if requested[extra] {
+			fields = append(fields, extra)
+		}
+	}
+
+	return fields, nil
 }
 
 func newMRViewCommand(rootOpts *rootOptions, projOpts *projectOptions) *cobra.Command {
@@ -153,7 +228,7 @@ func newMRViewCommand(rootOpts *rootOptions, projOpts *projectOptions) *cobra.Co
 		Use:     "view <!iid|iid>",
 		Aliases: []string{"info"},
 		Short:   "Show merge request information",
-		Args:    cobra.ExactArgs(1),
+		Args:    wrapArgsValidator(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			iid, err := parseMergeRequestRef(args[0])
 			if err != nil {
@@ -179,7 +254,9 @@ func parseMergeRequestRef(ref string) (int64, error) {
 
 	iid, err := strconv.ParseInt(trimmed, 10, 64)
 	if err != nil || iid <= 0 {
-		return 0, fmt.Errorf("%w %q: expected !<iid> or <iid>, for example !123", errInvalidMergeRequestRef, ref)
+		return 0, newUsageError(
+			fmt.Errorf("%w %q: expected !<iid> or <iid>, for example !123", errInvalidMergeRequestRef, ref),
+		)
 	}
 
 	return iid, nil
@@ -196,17 +273,14 @@ func runMRView(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOptio
 		return err
 	}
 
-	ctx := cmd.Context()
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	mergeRequest, _, err := client.MergeRequests.GetMergeRequest(resolved.ref, iid, nil, gitlab.WithContext(ctx))
+	mergeRequest, _, err := client.MergeRequests.GetMergeRequest(resolved.ref, iid, nil, gitlab.WithContext(commandContext(cmd)))
 	if err != nil {
 		return fmt.Errorf("get merge request !%d in project %q: %w", iid, resolved.ref, err)
 	}
 
-	return writeMergeRequest(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, mergeRequest, opts.full)
+	hints := &mrHintContext{project: explicitProjectRef(projOpts)}
+
+	return writeMergeRequest(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, mergeRequest, opts.full, hints)
 }
 
 func runMRList(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOptions, opts *mrListOptions) error {
@@ -215,23 +289,29 @@ func runMRList(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOptio
 		return err
 	}
 
-	client, err := rootOpts.newGitLabClientWithBaseURLFallback(resolved.baseURL)
+	mergeRequests, paging, err := fetchMergeRequestList(cmd, rootOpts, resolved, opts)
 	if err != nil {
 		return err
 	}
 
-	ctx := cmd.Context()
-	if ctx == nil {
-		ctx = context.Background()
+	hints := &mrHintContext{project: explicitProjectRef(projOpts), limit: opts.limit}
+
+	return writeMergeRequestList(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, mergeRequests, paging, opts.fields, hints)
+}
+
+func fetchMergeRequestList(cmd *cobra.Command, rootOpts *rootOptions, resolved resolvedProject, opts *mrListOptions) ([]*gitlab.BasicMergeRequest, mrListPaging, error) {
+	client, err := rootOpts.newGitLabClientWithBaseURLFallback(resolved.baseURL)
+	if err != nil {
+		return nil, mrListPaging{}, err
 	}
 
 	mergeRequests, resp, err := client.MergeRequests.ListProjectMergeRequests(
 		resolved.ref,
 		buildListMergeRequestsOptions(opts),
-		gitlab.WithContext(ctx),
+		gitlab.WithContext(commandContext(cmd)),
 	)
 	if err != nil {
-		return fmt.Errorf("list merge requests in project %q: %w", resolved.ref, err)
+		return nil, mrListPaging{}, fmt.Errorf("list merge requests in project %q: %w", resolved.ref, err)
 	}
 
 	paging := mrListPaging{page: opts.page}
@@ -243,7 +323,17 @@ func runMRList(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOptio
 		paging.totalPages = resp.TotalPages
 	}
 
-	return writeMergeRequestList(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, mergeRequests, paging)
+	return mergeRequests, paging, nil
+}
+
+// explicitProjectRef reports the --project value when one was passed, so help
+// hints can carry the flag forward into suggested commands.
+func explicitProjectRef(projOpts *projectOptions) string {
+	if projOpts == nil {
+		return ""
+	}
+
+	return strings.TrimSpace(projOpts.project)
 }
 
 func buildListMergeRequestsOptions(opts *mrListOptions) *gitlab.ListProjectMergeRequestsOptions {

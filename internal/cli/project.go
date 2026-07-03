@@ -41,7 +41,7 @@ func newProjectInfoCommand(rootOpts *rootOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "info",
 		Short: "Show GitLab project information",
-		Args:  cobra.NoArgs,
+		Args:  wrapArgsValidator(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runProjectInfo(cmd, rootOpts, opts)
 		},

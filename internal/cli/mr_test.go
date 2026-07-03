@@ -207,7 +207,7 @@ func TestMRCommandRejectsUnknownAction(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cmd := newRootCommand("gl", "test", "test", commandModeStandard)
+	cmd, _ := newRootCommand("gl", "test", "test", commandModeStandard)
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{
@@ -222,13 +222,63 @@ func TestMRCommandRejectsUnknownAction(t *testing.T) {
 	if !errors.Is(err, errUnknownMergeRequestAction) {
 		t.Fatalf("Execute error = %v, want errUnknownMergeRequestAction", err)
 	}
+	if exitCodeForError(err) != 2 {
+		t.Fatalf("exitCodeForError = %d, want 2 for usage error", exitCodeForError(err))
+	}
+}
+
+func TestMRCommandRejectsExtraArguments(t *testing.T) {
+	cmd, _ := newRootCommand("gl", "test", "test", commandModeStandard)
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"mr", "!123", "view", "extra"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute returned nil error, want usage error for extra arguments")
+	}
+	if exitCodeForError(err) != 2 {
+		t.Fatalf("exitCodeForError = %d, want 2 for usage error", exitCodeForError(err))
+	}
+}
+
+func TestMRListRejectsUnknownFields(t *testing.T) {
+	cmd, _ := newRootCommand("gl-axi", "test", "test", commandModeAxi)
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"mr", "list", "--fields", "bogus"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute returned nil error, want usage error for unknown field")
+	}
+	if !strings.Contains(err.Error(), `unknown field "bogus"`) {
+		t.Fatalf("Execute error = %v, want unknown field message", err)
+	}
+	if exitCodeForError(err) != 2 {
+		t.Fatalf("exitCodeForError = %d, want 2 for usage error", exitCodeForError(err))
+	}
+}
+
+func TestParseMRListFieldsCanonicalOrder(t *testing.T) {
+	fields, err := parseMRListFields("web_url, draft")
+	if err != nil {
+		t.Fatalf("parseMRListFields returned error: %v", err)
+	}
+	if len(fields) != 2 || fields[0] != "draft" || fields[1] != "web_url" {
+		t.Fatalf("parseMRListFields = %v, want [draft web_url]", fields)
+	}
+
+	if fields, err := parseMRListFields("title"); err != nil || fields != nil {
+		t.Fatalf("parseMRListFields(default field) = %v, %v, want nil, nil", fields, err)
+	}
 }
 
 func executeMRRootCommand(t *testing.T, baseURL string, extraArgs ...string) string {
 	t.Helper()
 
 	var out bytes.Buffer
-	cmd := newRootCommand("gl", "test", "test", commandModeStandard)
+	cmd, _ := newRootCommand("gl", "test", "test", commandModeStandard)
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
 
@@ -253,19 +303,39 @@ func TestWriteMergeRequestAxiTOONTruncatesDescription(t *testing.T) {
 	mergeRequest := testMergeRequest(123, strings.Repeat("x", 600))
 
 	var out bytes.Buffer
-	if err := writeMergeRequest(&out, "toon", commandModeAxi, mergeRequest, false); err != nil {
+	if err := writeMergeRequest(&out, "toon", commandModeAxi, mergeRequest, false, nil); err != nil {
 		t.Fatalf("writeMergeRequest returned error: %v", err)
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "merge_request{iid,title,state,draft,author,source_branch,target_branch,detailed_merge_status,has_conflicts,user_notes_count,updated_at,web_url}:") {
-		t.Fatalf("output = %q, want compact TOON header", got)
+	if !strings.Contains(got, "merge_request:\n  iid: 123") {
+		t.Fatalf("output = %q, want nested merge_request object", got)
 	}
-	if !strings.Contains(got, "(truncated, 600 chars total — use --full") {
-		t.Fatalf("output = %q, want truncation hint", got)
+	if !strings.Contains(got, "pipeline_status: success") {
+		t.Fatalf("output = %q, want pipeline_status in compact view", got)
 	}
-	if !strings.Contains(got, "next: ") {
-		t.Fatalf("output = %q, want next hint", got)
+	if !strings.Contains(got, "(truncated, 600 chars total)") {
+		t.Fatalf("output = %q, want truncation marker", got)
+	}
+	if !strings.Contains(got, "help[1]: Run `mr view 123 --full`") {
+		t.Fatalf("output = %q, want --full escape hatch hint", got)
+	}
+}
+
+func TestWriteMergeRequestAxiTOONShortDescriptionOmitsHelp(t *testing.T) {
+	mergeRequest := testMergeRequest(123, "short description")
+
+	var out bytes.Buffer
+	if err := writeMergeRequest(&out, "toon", commandModeAxi, mergeRequest, false, nil); err != nil {
+		t.Fatalf("writeMergeRequest returned error: %v", err)
+	}
+
+	got := out.String()
+	if strings.Contains(got, "help[") {
+		t.Fatalf("output = %q, want no help hints when nothing is truncated", got)
+	}
+	if strings.Contains(got, "(truncated,") {
+		t.Fatalf("output = %q, want no truncation marker for short description", got)
 	}
 }
 
@@ -274,22 +344,28 @@ func TestWriteMergeRequestAxiTOONFullFields(t *testing.T) {
 	mergeRequest := testMergeRequest(123, description)
 
 	var out bytes.Buffer
-	if err := writeMergeRequest(&out, "toon", commandModeAxi, mergeRequest, true); err != nil {
+	if err := writeMergeRequest(&out, "toon", commandModeAxi, mergeRequest, true, nil); err != nil {
 		t.Fatalf("writeMergeRequest returned error: %v", err)
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "changes_count,pipeline_status") {
-		t.Fatalf("output = %q, want full TOON header fields", got)
+	if !strings.Contains(got, "changes_count: ") {
+		t.Fatalf("output = %q, want full view fields", got)
 	}
-	if !strings.Contains(got, "backend;search") {
-		t.Fatalf("output = %q, want ;-joined labels", got)
+	if !strings.Contains(got, "labels[2]: backend,search") {
+		t.Fatalf("output = %q, want labels as TOON inline array", got)
+	}
+	if !strings.Contains(got, "assignees[2]: mona,hubot") {
+		t.Fatalf("output = %q, want assignees as TOON inline array", got)
 	}
 	if strings.Contains(got, "(truncated,") {
 		t.Fatalf("output = %q, want complete description without truncation hint", got)
 	}
 	if !strings.Contains(got, description) {
 		t.Fatalf("output = %q, want complete description", got)
+	}
+	if strings.Contains(got, "help[") {
+		t.Fatalf("output = %q, want no help hints on the self-contained full view", got)
 	}
 }
 
@@ -304,14 +380,14 @@ func TestWriteMergeRequestListAxiTOON(t *testing.T) {
 		page:       1,
 		totalItems: 57,
 		totalPages: 3,
-	})
+	}, nil, nil)
 	if err != nil {
 		t.Fatalf("writeMergeRequestList returned error: %v", err)
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "merge_requests[2]{iid,title,state,draft,author,source_branch,target_branch,updated_at}:") {
-		t.Fatalf("output = %q, want TOON list header", got)
+	if !strings.Contains(got, "merge_requests[2]{iid,title,state,author}:") {
+		t.Fatalf("output = %q, want compact TOON list header", got)
 	}
 	if !strings.Contains(got, "  123,") || !strings.Contains(got, "  120,") {
 		t.Fatalf("output = %q, want both rows", got)
@@ -319,20 +395,63 @@ func TestWriteMergeRequestListAxiTOON(t *testing.T) {
 	if !strings.Contains(got, "count: 2 of 57 total") {
 		t.Fatalf("output = %q, want count line", got)
 	}
-	if !strings.Contains(got, "next: ") {
-		t.Fatalf("output = %q, want next hint", got)
+	if !strings.Contains(got, "Run `mr view <iid>` for details") {
+		t.Fatalf("output = %q, want view hint", got)
+	}
+	if !strings.Contains(got, "Run `mr list --page 2` for the next page") {
+		t.Fatalf("output = %q, want next-page hint", got)
 	}
 }
 
-func TestWriteMergeRequestListAxiTOONEmpty(t *testing.T) {
+func TestWriteMergeRequestListAxiTOONExtraFields(t *testing.T) {
+	mergeRequests := []*gitlab.BasicMergeRequest{
+		&testMergeRequest(123, "one").BasicMergeRequest,
+	}
+
 	var out bytes.Buffer
-	err := writeMergeRequestList(&out, "toon", commandModeAxi, nil, mrListPaging{page: 1})
+	err := writeMergeRequestList(&out, "toon", commandModeAxi, mergeRequests, mrListPaging{
+		page: 1, totalItems: 1, totalPages: 1,
+	}, []string{"source_branch", "updated_at"}, nil)
 	if err != nil {
 		t.Fatalf("writeMergeRequestList returned error: %v", err)
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "merge_requests[0]{") {
+	if !strings.Contains(got, "merge_requests[1]{iid,title,state,author,source_branch,updated_at}:") {
+		t.Fatalf("output = %q, want header with extra fields", got)
+	}
+	if strings.Contains(got, "for the next page") {
+		t.Fatalf("output = %q, want no page hint on a single page", got)
+	}
+}
+
+func TestWriteMergeRequestListAxiCarriesProjectFlag(t *testing.T) {
+	mergeRequests := []*gitlab.BasicMergeRequest{
+		&testMergeRequest(123, "one").BasicMergeRequest,
+	}
+
+	var out bytes.Buffer
+	err := writeMergeRequestList(&out, "toon", commandModeAxi, mergeRequests, mrListPaging{
+		page: 1, totalItems: 1, totalPages: 1,
+	}, nil, &mrHintContext{project: "group/project"})
+	if err != nil {
+		t.Fatalf("writeMergeRequestList returned error: %v", err)
+	}
+
+	if !strings.Contains(out.String(), "Run `mr view <iid> --project group/project` for details") {
+		t.Fatalf("output = %q, want hint carrying --project", out.String())
+	}
+}
+
+func TestWriteMergeRequestListAxiTOONEmpty(t *testing.T) {
+	var out bytes.Buffer
+	err := writeMergeRequestList(&out, "toon", commandModeAxi, nil, mrListPaging{page: 1}, nil, nil)
+	if err != nil {
+		t.Fatalf("writeMergeRequestList returned error: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "merge_requests[0]:") {
 		t.Fatalf("output = %q, want empty TOON list header", got)
 	}
 	if !strings.Contains(got, "count: 0 of 0 total") {
@@ -340,6 +459,26 @@ func TestWriteMergeRequestListAxiTOONEmpty(t *testing.T) {
 	}
 	if !strings.Contains(got, "No merge requests matched") {
 		t.Fatalf("output = %q, want definitive empty-state hint", got)
+	}
+}
+
+func TestWriteMergeRequestListAxiTOONUnknownTotal(t *testing.T) {
+	mergeRequests := []*gitlab.BasicMergeRequest{
+		&testMergeRequest(123, "one").BasicMergeRequest,
+	}
+
+	var out bytes.Buffer
+	err := writeMergeRequestList(&out, "toon", commandModeAxi, mergeRequests, mrListPaging{page: 1}, nil, &mrHintContext{limit: 1})
+	if err != nil {
+		t.Fatalf("writeMergeRequestList returned error: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "count: 1 of unknown total") {
+		t.Fatalf("output = %q, want unknown-total count line", got)
+	}
+	if !strings.Contains(got, "More results may exist") {
+		t.Fatalf("output = %q, want full-page pagination hint", got)
 	}
 }
 
@@ -354,7 +493,7 @@ func TestWriteMergeRequestListStandardTable(t *testing.T) {
 		page:       1,
 		totalItems: 57,
 		totalPages: 3,
-	})
+	}, nil, nil)
 	if err != nil {
 		t.Fatalf("writeMergeRequestList returned error: %v", err)
 	}
@@ -373,7 +512,7 @@ func TestWriteMergeRequestListStandardTable(t *testing.T) {
 
 func TestWriteMergeRequestListStandardTableEmpty(t *testing.T) {
 	var out bytes.Buffer
-	err := writeMergeRequestList(&out, "text", commandModeStandard, nil, mrListPaging{page: 1})
+	err := writeMergeRequestList(&out, "text", commandModeStandard, nil, mrListPaging{page: 1}, nil, nil)
 	if err != nil {
 		t.Fatalf("writeMergeRequestList returned error: %v", err)
 	}
@@ -393,7 +532,7 @@ func TestWriteMergeRequestListStandardJSON(t *testing.T) {
 		page:       1,
 		totalItems: 57,
 		totalPages: 3,
-	})
+	}, nil, nil)
 	if err != nil {
 		t.Fatalf("writeMergeRequestList returned error: %v", err)
 	}
@@ -409,28 +548,36 @@ func TestWriteMergeRequestListStandardJSON(t *testing.T) {
 
 func TestWriteCommandErrorInvalidMergeRequestRef(t *testing.T) {
 	var out bytes.Buffer
-	writeCommandError(&out, commandModeAxi, fmt.Errorf("wrap: %w", errInvalidMergeRequestRef))
+	writeCommandError(&out, commandModeAxi, "toon", "gl-axi", fmt.Errorf("wrap: %w", errInvalidMergeRequestRef))
 
-	if !strings.Contains(out.String(), "invalid_merge_request_ref") {
+	if !strings.Contains(out.String(), "code: invalid_merge_request_ref") {
 		t.Fatalf("output = %q, want invalid_merge_request_ref code", out.String())
 	}
 }
 
-func TestTruncateWithHint(t *testing.T) {
-	if got := truncateWithHint("short", 500); got != "short" {
-		t.Fatalf("truncateWithHint(short) = %q, want unchanged", got)
+func TestTruncateDescription(t *testing.T) {
+	if got, truncated := truncateDescription("short", 500, commandModeAxi); got != "short" || truncated {
+		t.Fatalf("truncateDescription(short) = %q, %t, want unchanged and not truncated", got, truncated)
 	}
 
 	long := strings.Repeat("é", 501)
-	got := truncateWithHint(long, 500)
-	if !strings.HasPrefix(got, strings.Repeat("é", 500)) {
-		t.Fatalf("truncateWithHint output does not preserve first 500 runes: %q", got[:50])
+	got, truncated := truncateDescription(long, 500, commandModeAxi)
+	if !truncated {
+		t.Fatal("truncateDescription reported not truncated for a long value")
 	}
-	if !strings.Contains(got, "(truncated, 501 chars total — use --full for the complete description)") {
-		t.Fatalf("truncateWithHint output = %q, want hint with rune total", got)
+	if !strings.HasPrefix(got, strings.Repeat("é", 500)) {
+		t.Fatalf("truncateDescription output does not preserve first 500 runes: %q", got[:50])
+	}
+	if !strings.Contains(got, "(truncated, 501 chars total)") {
+		t.Fatalf("truncateDescription output = %q, want size marker with rune total", got)
 	}
 	if strings.Contains(got, strings.Repeat("é", 501)) {
-		t.Fatalf("truncateWithHint output still contains the full value")
+		t.Fatalf("truncateDescription output still contains the full value")
+	}
+
+	standard, _ := truncateDescription(long, 500, commandModeStandard)
+	if !strings.Contains(standard, "use --full for the complete description") {
+		t.Fatalf("standard-mode marker = %q, want inline --full hint", standard)
 	}
 }
 

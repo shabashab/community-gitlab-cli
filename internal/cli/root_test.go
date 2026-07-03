@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -32,16 +34,74 @@ func TestWriteUserSupportsText(t *testing.T) {
 }
 
 func TestRootCommandUsesModeOutputDefaults(t *testing.T) {
-	standard := newRootCommand("gl", "short", "long", commandModeStandard)
+	standard, _ := newRootCommand("gl", "short", "long", commandModeStandard)
 	standardOutput := standard.PersistentFlags().Lookup("output")
 	if standardOutput.DefValue != "text" {
 		t.Fatalf("standard output default = %q, want text", standardOutput.DefValue)
 	}
 
-	axi := newRootCommand("gl-axi", "short", "long", commandModeAxi)
+	axi, _ := newRootCommand("gl-axi", "short", "long", commandModeAxi)
 	axiOutput := axi.PersistentFlags().Lookup("output")
 	if axiOutput.DefValue != "toon" {
 		t.Fatalf("axi output default = %q, want toon", axiOutput.DefValue)
+	}
+}
+
+func TestRootCommandRejectsInvalidOutputBeforeRunning(t *testing.T) {
+	cmd, _ := newRootCommand("gl", "short", "long", commandModeStandard)
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"whoami", "-o", "yaml"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute returned nil error, want unsupported format usage error")
+	}
+	if !strings.Contains(err.Error(), `unsupported output format "yaml"`) {
+		t.Fatalf("Execute error = %v, want unsupported format message", err)
+	}
+	if exitCodeForError(err) != 2 {
+		t.Fatalf("exitCodeForError = %d, want 2 for usage error", exitCodeForError(err))
+	}
+}
+
+func TestRootCommandUnknownFlagListsValidFlags(t *testing.T) {
+	cmd, opts := newRootCommand("gl-axi", "short", "long", commandModeAxi)
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"mr", "list", "--stat", "closed"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute returned nil error, want unknown flag error")
+	}
+	if exitCodeForError(err) != 2 {
+		t.Fatalf("exitCodeForError = %d, want 2 for unknown flag", exitCodeForError(err))
+	}
+
+	var out bytes.Buffer
+	writeCommandError(&out, commandModeAxi, opts.output, opts.binName, err)
+	got := out.String()
+	if !strings.Contains(got, "unknown flag: --stat") {
+		t.Fatalf("error output = %q, want unknown flag message", got)
+	}
+	if !strings.Contains(got, "--state") || !strings.Contains(got, "--help always allowed") {
+		t.Fatalf("error output = %q, want inline valid-flag list", got)
+	}
+}
+
+func TestRootCommandRejectsUnknownCommand(t *testing.T) {
+	cmd, _ := newRootCommand("gl-axi", "short", "long", commandModeAxi)
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"bogus"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute returned nil error, want unknown command error")
+	}
+	if exitCodeForError(err) != 2 {
+		t.Fatalf("exitCodeForError = %d, want 2 for unknown command", exitCodeForError(err))
 	}
 }
 
@@ -99,9 +159,11 @@ func TestWriteUserSupportsAxiTOON(t *testing.T) {
 	}
 
 	for _, fragment := range []string{
-		"user{id,username,name,web_url}:",
-		`42,octocat,"Mona Lisa","https://gitlab.example/octocat"`,
-		`next: "Use project list when available to inspect accessible projects."`,
+		"user:\n  id: 42",
+		"username: octocat",
+		"name: Mona Lisa",
+		"Run `project info` to inspect the current project",
+		"Run `mr` to list open merge requests",
 	} {
 		if !strings.Contains(out.String(), fragment) {
 			t.Fatalf("writeUser AXI output = %q, want fragment %q", out.String(), fragment)
@@ -126,7 +188,7 @@ func TestWriteUserSupportsAxiJSON(t *testing.T) {
 	for _, fragment := range []string{
 		`"user": {`,
 		`"username": "octocat"`,
-		`"next": "Use project list when available to inspect accessible projects."`,
+		`"help": [`,
 	} {
 		if !strings.Contains(out.String(), fragment) {
 			t.Fatalf("writeUser AXI JSON = %q, want fragment %q", out.String(), fragment)
@@ -137,16 +199,52 @@ func TestWriteUserSupportsAxiJSON(t *testing.T) {
 func TestWriteCommandErrorSupportsAxi(t *testing.T) {
 	var out bytes.Buffer
 
-	writeCommandError(&out, commandModeAxi, fmt.Errorf("%w: set GITLAB_TOKEN", gitlabclient.ErrMissingToken))
+	writeCommandError(&out, commandModeAxi, "toon", "gl-axi", fmt.Errorf("%w: set GITLAB_TOKEN", gitlabclient.ErrMissingToken))
 
 	for _, fragment := range []string{
-		"error{code,message}:",
-		"missing_gitlab_token",
-		`next: "Set GITLAB_TOKEN, pass --gitlab-token, or run auth login <token> --gitlab-base-url <url>, then retry."`,
+		"error: ",
+		"code: missing_gitlab_token",
+		"help[1]: ",
+		"Set GITLAB_TOKEN",
 	} {
 		if !strings.Contains(out.String(), fragment) {
 			t.Fatalf("writeCommandError AXI output = %q, want fragment %q", out.String(), fragment)
 		}
+	}
+}
+
+func TestWriteCommandErrorHonorsJSONFormat(t *testing.T) {
+	var out bytes.Buffer
+
+	writeCommandError(&out, commandModeAxi, "json", "gl-axi", fmt.Errorf("%w: set GITLAB_TOKEN", gitlabclient.ErrMissingToken))
+
+	for _, fragment := range []string{
+		`"error": `,
+		`"code": "missing_gitlab_token"`,
+		`"help": [`,
+	} {
+		if !strings.Contains(out.String(), fragment) {
+			t.Fatalf("writeCommandError JSON output = %q, want fragment %q", out.String(), fragment)
+		}
+	}
+}
+
+func TestWriteCommandErrorTranslatesAPIErrors(t *testing.T) {
+	respErr := &gitlab.ErrorResponse{StatusCode: 401, Message: "401 Unauthorized"}
+	err := fmt.Errorf("get current GitLab user: %w", respErr)
+
+	var out bytes.Buffer
+	writeCommandError(&out, commandModeAxi, "toon", "gl-axi", err)
+
+	got := out.String()
+	if !strings.Contains(got, "code: gitlab_auth_failed") {
+		t.Fatalf("output = %q, want gitlab_auth_failed code", got)
+	}
+	if !strings.Contains(got, "GitLab rejected the token (401 Unauthorized)") {
+		t.Fatalf("output = %q, want translated message", got)
+	}
+	if strings.Contains(got, "/api/v4/") || strings.Contains(got, "GET http") {
+		t.Fatalf("output = %q, want no raw request URL leak", got)
 	}
 }
 
@@ -196,14 +294,18 @@ func TestWriteProjectSupportsAxiTOON(t *testing.T) {
 	}
 
 	for _, fragment := range []string{
-		"project{id,name,name_with_namespace,path,path_with_namespace",
-		`42,project,"Group / Project",project,group/project`,
-		"namespace{id,name,path,kind,full_path,web_url}:",
-		`next: "Use --project to inspect another project, or run inside a GitLab repository with origin configured."`,
+		"project:\n  id: 42",
+		"path_with_namespace: group/project",
+		"namespace:\n    id: 10",
+		"full_path: group",
 	} {
 		if !strings.Contains(out.String(), fragment) {
 			t.Fatalf("writeProject AXI output = %q, want fragment %q", out.String(), fragment)
 		}
+	}
+	// A detail view is self-contained: no help hints expected.
+	if strings.Contains(out.String(), "help[") {
+		t.Fatalf("writeProject AXI output = %q, want no help hints", out.String())
 	}
 }
 
@@ -217,7 +319,6 @@ func TestWriteProjectSupportsAxiJSON(t *testing.T) {
 	for _, fragment := range []string{
 		`"project": {`,
 		`"path_with_namespace": "group/project"`,
-		`"next": "Use --project to inspect another project, or run inside a GitLab repository with origin configured."`,
 	} {
 		if !strings.Contains(out.String(), fragment) {
 			t.Fatalf("writeProject AXI JSON = %q, want fragment %q", out.String(), fragment)
@@ -236,6 +337,88 @@ func TestWriteProjectRejectsNilProject(t *testing.T) {
 	err := writeProject(&bytes.Buffer{}, "text", commandModeStandard, nil)
 	if err == nil {
 		t.Fatal("writeProject returned nil error, want nil project error")
+	}
+}
+
+func TestRunAxiHomeOutsideRepoShowsUser(t *testing.T) {
+	t.Setenv(gitlabclient.BaseURLEnv, "")
+	t.Setenv(gitlabclient.TokenEnv, "")
+	t.Setenv(gitlabclient.AlternateTokenEnv, "")
+	withWorkingDir(t, t.TempDir())
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v4/user" {
+			t.Errorf("request path = %q, want /api/v4/user", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"id":42,"username":"octocat","name":"Mona Lisa","state":"active","web_url":"https://gitlab.example/octocat"}`)
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	cmd, opts := newRootCommand("gl-axi", "short", "long", commandModeAxi)
+	cmd.SetOut(&out)
+	opts.gitlabToken = "test-token"
+	opts.gitlabBaseURL = server.URL
+
+	if err := runAxiHome(cmd, opts); err != nil {
+		t.Fatalf("runAxiHome returned error: %v", err)
+	}
+
+	got := out.String()
+	for _, fragment := range []string{
+		"bin: ",
+		"description: ",
+		"username: octocat",
+		"help[",
+	} {
+		if !strings.Contains(got, fragment) {
+			t.Fatalf("home output = %q, want fragment %q", got, fragment)
+		}
+	}
+}
+
+func TestRunAxiHomeInRepoShowsMergeRequests(t *testing.T) {
+	t.Setenv(gitlabclient.BaseURLEnv, "")
+	t.Setenv(gitlabclient.TokenEnv, "")
+	t.Setenv(gitlabclient.AlternateTokenEnv, "")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.EscapedPath(), "merge_requests") {
+			t.Errorf("request path = %q, want merge request list path", r.URL.EscapedPath())
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Total", "1")
+		w.Header().Set("X-Total-Pages", "1")
+		w.Header().Set("X-Page", "1")
+		fmt.Fprint(w, `[{"iid":7,"title":"Fix bug","state":"opened","author":{"username":"octocat"}}]`)
+	}))
+	defer server.Close()
+
+	dir := newGitRepoWithOrigin(t, server.URL+"/group/project.git")
+	withWorkingDir(t, dir)
+
+	var out bytes.Buffer
+	cmd, opts := newRootCommand("gl-axi", "short", "long", commandModeAxi)
+	cmd.SetOut(&out)
+	opts.gitlabToken = "test-token"
+
+	if err := runAxiHome(cmd, opts); err != nil {
+		t.Fatalf("runAxiHome returned error: %v", err)
+	}
+
+	got := out.String()
+	for _, fragment := range []string{
+		"bin: ",
+		"description: ",
+		"project: group/project",
+		"merge_requests[1]{iid,title,state,author}:",
+		"7,Fix bug,opened,octocat",
+		"count: 1 of 1 total open",
+	} {
+		if !strings.Contains(got, fragment) {
+			t.Fatalf("home output = %q, want fragment %q", got, fragment)
+		}
 	}
 }
 
