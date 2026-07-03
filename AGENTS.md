@@ -12,6 +12,7 @@ The project includes another binary named `gl-axi`. That binary is intended to b
 - Module: `github.com/shabashab/community-gitlab-cli`
 - CLI framework: Cobra (`github.com/spf13/cobra`)
 - GitLab API client: `gitlab.com/gitlab-org/api/client-go/v2`
+- TOON encoding: `github.com/toon-format/toon-go` — all axi TOON output goes through `toon.MarshalString` on structs tagged `toon:"..."`; never hand-format TOON
 - Table rendering: `github.com/jedib0t/go-pretty/v6`, imported only by `internal/cli/mr_table.go` so the library can be swapped in one place
 - Task runner: Taskfile v3 (`Taskfile.yml`)
 - Primary binary: `gl`, built into `bin/gl`
@@ -21,11 +22,19 @@ The project includes another binary named `gl-axi`. That binary is intended to b
 
 - `cmd/gl/main.go`: `gl` application entry point; calls `cli.Execute()`.
 - `cmd/gl-axi/main.go`: `gl-axi` application entry point; calls `cli.ExecuteAxi()`.
-- `internal/cli/root.go`: shared Cobra root command definition and CLI initialization.
-- `internal/cli/mr.go`: `mr` command suite (`list`, `view`, and `!<iid>` dispatch) and merge request run functions.
+- `internal/cli/root.go`: shared Cobra root command definition, CLI initialization, exit-code handling, and the gl-axi home view (`runAxiHome`).
+- `internal/cli/errors.go`: `usageError` (exit 2), cobra flag/args error wrapping, `classifyError` code mapping, and GitLab API error translation.
+- `internal/cli/mr.go`: `mr` command suite (`list`, `view`, and `!<iid>` dispatch), `--fields` parsing, and merge request run functions.
 - `internal/cli/mr_table.go`: standard-mode merge request table rendering; the only file importing go-pretty.
-- `internal/cli/output.go`: per-resource output structs and text/json/toon writers, plus structured error rendering.
+- `internal/cli/output.go`: per-resource output structs (tagged `json` + `toon`) and text/json/toon writers, plus structured error rendering.
 - `internal/cli/auth.go`: `auth` command suite (`login`, `logout`, `status`) for stored credentials.
+- `internal/cli/setup.go`: gl-axi-only `setup hooks` command installing agent session integrations.
+- `internal/cli/context.go`: gl-axi-only `context` command printing session-start ambient context; silent (exit 0, no output) on any failure so hooks never spam sessions.
+- `internal/agenthooks/`: SessionStart hook installer targeting Claude Code (`~/.claude/settings.json`), Codex (`~/.codex/hooks.json` + `config.toml`), and OpenCode (managed plugin); idempotent, path-repairing, never touches unmanaged config.
+- `.agents/skills/gl-axi/SKILL.md`: installable Agent Skill describing gl-axi usage; keep it in sync when the command surface changes.
+- `docs/axi-output.md`: detailed gl-axi output contract — per-command shapes, `--fields`, truncation, count lines, help-hint rules; update when changing axi output.
+- `docs/errors-and-exit-codes.md`: error model reference — structured error shape, error-code table, exit codes, API error translation; update when adding error codes.
+- `docs/agent-integrations.md`: session-integration reference — `setup hooks` per-app behavior, `context` command contract, Agent Skill; update when changing `internal/agenthooks` or the context output.
 - `internal/gitlabclient/config.go`: shared GitLab client-go configuration and client construction.
 - `internal/repo/discovery.go`: shared git origin discovery and remote URL parsing.
 - `internal/credstore/`: hybrid credential store — OS keychain via `github.com/zalando/go-keyring` with an encrypted-file fallback at `~/.gl/credentials.json`; `store.go` is the hybrid entry point, `domain.go` canonicalizes base URLs into credential keys, `crypto.go`/`file.go` implement the encrypted file backend, `keyring.go` wraps the OS keychain.
@@ -148,11 +157,13 @@ Project-aware commands use `internal/repo` to discover the current project from 
 
 `gl` and `gl-axi` share GitLab API behavior. Keep GitLab API calls in shared command code and branch only at the presentation/ergonomics layer through the root command mode:
 
-- `gl`: default `--output text`; supports `text` and `json`; normal stderr errors.
-- `gl-axi`: default `--output toon`; supports `toon` and `json`; compact fields, contextual `next` hints, structured TOON-style errors, and content-first root behavior.
-- Running `gl-axi` with no subcommand should show live data, not help. The root dashboard currently delegates to `whoami`.
-- Merge request commands live under `mr`: bare `mr` lists open merge requests (content-first in both modes), `mr !<iid>` / `mr <iid>` shows one, `--full` expands the truncated description and adds all fields. The `!<iid>` dispatch happens in the `mr` parent command's `RunE`; extend its action switch when adding per-merge-request actions such as `diff` or `notes`.
-- Token-frugal defaults for agents: merge request view returns a compact field set with the description truncated at 500 runes and an inline size hint; list rows are 8 compact columns with a `count: N of M total` line. Keep new axi output narrow by default and put escape hatches behind flags like `--full`.
+- `gl`: default `--output text`; supports `text` and `json`; plain stderr errors.
+- `gl-axi`: default `--output toon`; supports `toon` and `json`; compact fields, `help[]` next-step suggestions, and content-first root behavior. All TOON output is encoded through `toon-go` — build a tagged struct and call `writeAxi`; never format TOON by hand.
+- Errors and exit codes (axi contract, enforced in `internal/cli/errors.go` + `root.go`): gl-axi errors are structured output (`error`, `code`, `help[]`) on **stdout** in the requested format; exit `0` for success including no-ops (idempotent mutations such as `auth logout` with nothing stored), `1` for runtime errors, `2` for usage errors. Wrap invalid-invocation errors in `newUsageError` so they exit 2; unknown flags automatically list the command's valid flags inline. Raw client-go API errors are translated by `translateGitLabAPIError` — never let request URLs or raw bodies leak into messages.
+- Running `gl-axi` with no subcommand shows live data, not help. The home view prints `bin` + `description` first (axi §10), then the open merge requests of the current repo, or `whoami` data outside one.
+- Merge request commands live under `mr`: bare `mr` lists open merge requests (content-first in both modes), `mr !<iid>` / `mr <iid>` shows one, `--full` expands the truncated description and adds all fields. The `!<iid>` dispatch happens in the `mr` parent command's `RunE`; extend its action switch when adding per-merge-request actions such as `diff` or `notes`. Extra positional args are rejected (fail loud).
+- Token-frugal defaults for agents: axi list rows are 4 columns (`iid,title,state,author`) with a `--fields` escape hatch for extra columns and a definitive `count: N of M total` line; merge request view is a compact field set with the description truncated at 500 runes and an explicit size marker, and the `--full` hint appears only when something was actually truncated. Help hints must be real runnable commands, parameterize dynamic values (`<iid>`), and carry an explicit `--project` forward. Keep new axi output narrow by default and put escape hatches behind flags like `--full`.
+- Ambient context: `gl-axi setup hooks` installs SessionStart integrations via `internal/agenthooks`; the hook command is `gl-axi context`, which must stay silent (exit 0, no output) whenever it cannot produce useful context.
 
 To inspect the actual upstream implementation:
 

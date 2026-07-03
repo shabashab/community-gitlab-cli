@@ -2,7 +2,15 @@
 
 Community GitLab CLI is a GitLab command-line tool that works through GitLab's personal access token API. It is built mainly for agentic workflows, so the project focuses on an agentic experience: predictable command behavior, script-friendly output, clear failure modes, and workflows that are easy for coding agents to inspect and automate.
 
-The project also includes another binary, `gl-axi`, intended to be based on the `axi` standard introduced by Kun Chen: https://github.com/kunchenguid/axi.
+The project also includes another binary, `gl-axi`, based on the `axi` standard introduced by Kun Chen: https://github.com/kunchenguid/axi.
+
+## Documentation
+
+Detailed reference pages live under `docs/`:
+
+- [gl-axi Output Reference](docs/axi-output.md) — TOON format, per-command output shapes, `--fields`, truncation, counts, and help-hint rules.
+- [Errors and Exit Codes](docs/errors-and-exit-codes.md) — the structured error shape, error-code table, exit codes, and GitLab API error translation.
+- [Agent Session Integrations](docs/agent-integrations.md) — `setup hooks`, the `context` command contract, and the installable Agent Skill.
 
 ## Project Stack
 
@@ -10,6 +18,7 @@ The project also includes another binary, `gl-axi`, intended to be based on the 
 - Module: `github.com/shabashab/community-gitlab-cli`
 - CLI framework: Cobra (`github.com/spf13/cobra`)
 - GitLab API client: `gitlab.com/gitlab-org/api/client-go/v2`
+- TOON encoding: `github.com/toon-format/toon-go`
 - Task runner: Taskfile v3 (`Taskfile.yml`)
 - Primary binary: `gl`, built into `bin/gl`
 - Additional binary: `gl-axi`, built into `bin/gl-axi`
@@ -18,10 +27,15 @@ The project also includes another binary, `gl-axi`, intended to be based on the 
 
 - `cmd/gl/main.go`: `gl` application entry point; calls `cli.Execute()`.
 - `cmd/gl-axi/main.go`: `gl-axi` application entry point; calls `cli.ExecuteAxi()`.
-- `internal/cli/root.go`: shared Cobra root command definition and CLI initialization.
+- `internal/cli/root.go`: shared Cobra root command definition, CLI initialization, and the gl-axi home view.
+- `internal/cli/errors.go`: usage-error classification, exit codes, flag-error rendering, and GitLab API error translation.
+- `internal/cli/setup.go` / `internal/cli/context.go`: gl-axi session-integration setup and the ambient-context command it installs.
+- `internal/agenthooks/`: SessionStart hook installer for Claude Code, Codex, and OpenCode.
 - `internal/gitlabclient/config.go`: shared GitLab client-go configuration and client construction.
 - `internal/repo/discovery.go`: shared git origin discovery and remote URL parsing.
 - `internal/credstore/`: persistent credential storage (OS keychain with an encrypted-file fallback).
+- `.agents/skills/gl-axi/SKILL.md`: installable Agent Skill describing gl-axi usage for agents.
+- `docs/`: detailed reference pages (axi output, errors and exit codes, agent integrations).
 - `go.mod`: Go module metadata and dependency declarations.
 - `go.sum`: Go dependency checksums.
 - `Taskfile.yml`: project task definitions for building and running the CLI.
@@ -129,7 +143,14 @@ Project-aware commands can discover the current GitLab project from the local gi
 
 Pass `--project` to select a project explicitly when running outside that project's directory. It accepts either a numeric GitLab project ID or a full path such as `group/subgroup/project`.
 
-`gl-axi` uses the same GitLab client and command behavior as `gl`, but changes presentation for agent ergonomics: compact TOON-style output, minimal fields, contextual `next` hints, structured errors, and content-first root behavior. Running `gl-axi` with no subcommand runs the current live dashboard behavior, which currently resolves to `whoami`.
+`gl-axi` uses the same GitLab client and command behavior as `gl`, but changes presentation for agent ergonomics: spec-compliant [TOON](https://toonformat.dev/) output (encoded with `github.com/toon-format/toon-go`), minimal default schemas, `help[]` next-step suggestions, and structured errors with machine-readable codes. Running `gl-axi` with no subcommand prints a home view that identifies the tool (`bin`, `description`) followed by live content: the open merge requests of the current GitLab repository, or the authenticated user outside a repository.
+
+Errors and exit codes follow the axi contract:
+
+- `gl-axi` errors are structured output on **stdout** in the requested format (`error`, `code`, `help[]`); `gl` keeps plain errors on stderr.
+- Exit codes: `0` success (including no-ops such as logging out with nothing stored), `1` runtime error, `2` usage error (unknown flag/command, bad arguments, unsupported `--output`).
+- Unknown flags fail loud and list the command's valid flags inline, so an agent can self-correct in one turn.
+- Raw GitLab API errors are translated into short actionable messages (`gitlab_auth_failed`, `gitlab_not_found`, `gitlab_rate_limited`, ...) without leaking request URLs.
 
 Example:
 
@@ -153,6 +174,7 @@ gl auth logout                                                 # remove the stor
 
 - `auth login` requires an explicit `--gitlab-base-url` and verifies the token against the instance (`/user`) before storing anything. Passing the token as an argument may leave it in shell history; prefer substituting it from a password manager.
 - `auth logout` and `auth status` resolve the host like every other command: `--gitlab-base-url`, then `GITLAB_BASE_URL`, then the discovered git origin, then `https://gitlab.com`.
+- `auth logout` is idempotent: with no stored credential it acknowledges the no-op and exits 0.
 - Credentials are stored in the OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service) when available. On headless systems the fallback is an encrypted file at `~/.gl/credentials.json` (`0700` directory, `0600` file) that contains neither the host nor the token in plaintext: hosts are stored as salted hashes and tokens are AES-256-GCM encrypted with a key derived from the host via Argon2id. This protects against opportunistic file scraping; it is not a defense against a targeted attacker who can guess common GitLab hostnames.
 - Explicit `--gitlab-token` or environment tokens always take precedence over stored credentials.
 
@@ -173,9 +195,22 @@ gl mr view '!123'              # explicit subcommand form, same behavior
 ```
 
 - `gl mr list` renders a table; `--output json` returns `{merge_requests, count, total, page, total_pages}`.
-- Merge request descriptions are truncated by default with a size hint; pass `--full` for the complete body and all fields.
-- `gl-axi mr` behaves the same but prints compact TOON rows with a `count: N of M total` line and contextual `next` hints, keeping default responses token-frugal for agents.
+- Merge request descriptions are truncated by default with an explicit size marker; pass `--full` for the complete body and all fields. The axi view suggests `--full` only when something was actually truncated.
+- `gl-axi mr` prints compact TOON rows (`iid,title,state,author` by default) with a definitive `count: N of M total` line and `help[]` hints for the next step (view command, next page when one exists, filter relaxation on empty results). Hints carry an explicit `--project` forward when one was passed.
+- `gl-axi mr list --fields draft,source_branch,target_branch,updated_at,web_url` adds columns to the compact schema; unknown field names are rejected with the valid set inline.
 - List filters: `--state`, `--search`, `--label`, `--author`, `--reviewer`, `--source-branch`, `--target-branch`, `--draft`, `--milestone`, `--order-by`, `--sort`, `--limit`, `--page`.
+
+## Agent Session Integrations (gl-axi)
+
+`gl-axi setup hooks` installs SessionStart integrations so agent sessions start with ambient GitLab context — the open merge requests of the repository the session starts in:
+
+- Claude Code: `~/.claude/settings.json` SessionStart hook
+- Codex: `~/.codex/hooks.json` plus `hooks = true` under `[features]` in `~/.codex/config.toml`
+- OpenCode: a managed plugin in `~/.config/opencode/plugins/`
+
+The installed hook runs `gl-axi context`, which prints a compact merge request digest and stays completely silent (exit 0, no output) outside GitLab repositories, without credentials, or when GitLab is unreachable. Repeated `setup hooks` runs are no-ops; a moved or reinstalled binary path is repaired automatically; unmanaged user configuration is never touched.
+
+As a lower-overhead alternative, an installable Agent Skill lives at `.agents/skills/gl-axi/SKILL.md` (`npx skills add shabashab/community-gitlab-cli --skill gl-axi`). It loads on demand instead of every session. The hook and the skill are complementary — one of them is enough.
 
 ## Development Notes
 
