@@ -190,6 +190,45 @@ Helpful starting points inside the client-go source:
 - `request_options.go`: per-request options such as `gitlab.WithContext`.
 - `testing/`: generated service mocks from the upstream project when a future command needs interface-driven tests.
 
+## Testing Guide For Agents
+
+Run tests with `task test` (`go test ./...`). Tests live next to their package (`internal/cli/*_test.go`, `internal/repo/discovery_test.go`). There are no interface mocks and no golden files — read this section before writing a test so you match the house style on the first attempt.
+
+### CLI tests stub GitLab with httptest
+
+Every GitLab interaction is tested against a real HTTP server:
+
+- Use `httptest.NewServer(http.HandlerFunc(...))` with a **single handler and a `switch` on `r.URL.EscapedPath()`**. Do not use `http.ServeMux` route patterns: project paths are URL-encoded (`projects/group%2Fproject`), and mux matching operates on the unescaped path, so patterns will not behave as expected. `EscapedPath()` keeps the `%2F`.
+- Assert requests via `r.URL.EscapedPath()`, `r.URL.Query()`, `r.Header.Get("Private-Token")`, and `r.Method`.
+- client-go sends **JSON** request bodies. Decode with `json.NewDecoder(r.Body).Decode(&map[string]any{})`. Numbers decode as `float64`; `gitlab.LabelOptions` marshals to a single comma-joined string (`"bug,backend"`), not an array.
+- Reuse the fixtures in `mr_test.go`: `testMergeRequest(iid, description)` builds a `*gitlab.MergeRequest`, `mergeRequestJSON(iid, description)` the matching canned response.
+
+### Two invocation levels — pick deliberately
+
+1. **Direct run-function calls** (`runMRView(cmd, &rootOptions{...}, &projectOptions{...}, ...)`) with a bare `&cobra.Command{}` and a hand-filled options struct. Fast and focused, but a bare command has **no registered flags**: anything using `cmd.Flags().Changed(...)` (set-tracking bools, `resolveContentFlag`) silently sees "not set". Use this level only when the run function does not inspect flag state.
+2. **Full root-command execution**: `cmd, _ := newRootCommand("gl", "test", "test", commandModeStandard)`, then `cmd.SetOut(&buf)`, `cmd.SetErr(&bytes.Buffer{})`, `cmd.SetArgs([]string{"mr", ..., "--gitlab-token", "test-token", "--gitlab-base-url", server.URL, "--project", "group/project", "-o", "json"})`, then `cmd.Execute()`. Required for flag parsing, `Changed` detection, mutual exclusion, usage errors, and stdin (`cmd.SetIn(strings.NewReader(...))`).
+
+Helper gotchas learned the hard way:
+
+- `executeMRRootCommand` (mr_test.go) **fatals on error** — for error-path tests write a variant that returns `(string, error)`.
+- Capture output **after** executing: `err := cmd.Execute(); return out.String(), err`. Writing `return out.String(), cmd.Execute()` evaluates the buffer before the command runs and returns an empty string.
+- Always pass `--project` and explicit branch flags in CLI tests: the test process runs inside this repository, so code paths that shell out to git (origin discovery, current-branch defaulting) would otherwise read the real repo and make the test environment-dependent.
+
+### Assertions
+
+- Output assertions are **substring checks** (`strings.Contains`) on TOON/JSON fragments — no golden files. Examples of house fragments: `merge_requests[2]{iid,title,state,author}:`, `"iid": 123`, `count: 2 of 57 total`.
+- TOON quotes strings containing special characters: URLs and timestamps render as `web_url: "https://..."` — include the quotes in the expected fragment or the assertion fails.
+- Usage errors: assert `errors.Is(err, <sentinel>)` and `exitCodeForError(err) == 2` (runtime errors: `== 1`).
+- Error codes: render with `writeCommandError(&buf, commandModeAxi, "toon", "gl-axi", err)` and assert `code: <expected_code>`; also assert the absence of leaks (`strings.Contains(got, server.URL)` must be false).
+- Writers are unit-testable directly: call `writeMergeRequest(&buf, "toon", commandModeAxi, ...)` etc. without any server.
+
+### internal/repo tests use real git
+
+- Guard with `if _, err := exec.LookPath("git"); err != nil { t.Skip(...) }`.
+- Build repos in `t.TempDir()` via the `runGit(t, dir, args...)` helper (prepends `-C dir`).
+- Commits need an identity; pass it inline instead of touching global config: `runGit(t, dir, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "init")`.
+- Detached HEAD state: `runGit(t, dir, "checkout", "--detach")` (requires at least one commit).
+
 ## Commit Message Policy
 
 Use Conventional Commits for every commit. The required format is:
