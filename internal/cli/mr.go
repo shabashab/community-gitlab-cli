@@ -120,6 +120,7 @@ and zsh, quote the bang form ('!123') to avoid shell history expansion.`,
 
 	cmd.AddCommand(newMRListCommand(rootOpts, projOpts))
 	cmd.AddCommand(newMRViewCommand(rootOpts, projOpts))
+	cmd.AddCommand(newMRCreateCommand(rootOpts, projOpts))
 
 	return cmd
 }

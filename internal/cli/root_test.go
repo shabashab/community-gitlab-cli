@@ -248,6 +248,21 @@ func TestWriteCommandErrorTranslatesAPIErrors(t *testing.T) {
 	}
 }
 
+func TestTranslateGitLabAPIErrorTruncatesLongDetail(t *testing.T) {
+	respErr := &gitlab.ErrorResponse{StatusCode: 422, Message: strings.Repeat("x", 5000)}
+
+	translated, ok := translateGitLabAPIError(fmt.Errorf("create merge request: %w", respErr))
+	if !ok {
+		t.Fatal("translateGitLabAPIError did not translate the error")
+	}
+	if strings.Contains(translated, strings.Repeat("x", apiErrorDetailLimit+1)) {
+		t.Fatalf("translated = %q, want detail capped at %d runes", translated, apiErrorDetailLimit)
+	}
+	if !strings.Contains(translated, "…") {
+		t.Fatalf("translated = %q, want truncation marker", translated)
+	}
+}
+
 func TestWriteProjectSupportsText(t *testing.T) {
 	var out bytes.Buffer
 

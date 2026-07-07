@@ -50,9 +50,13 @@ Design rules:
 | `no_stored_credential` | credential lookup found nothing | 1 |
 | `credential_store_unreadable` | corrupt or unsupported `~/.gl/credentials.json` | 1 |
 | `missing_gitlab_project` | no `--project` and no discoverable git origin | 1 |
+| `user_not_found` | `--assignee`/`--reviewer` username with no GitLab match | 1 |
+| `missing_source_branch` | `mr create` without `--source-branch` and no current git branch (detached HEAD, not a repository) | 1 |
+| `missing_target_branch` | `mr create` without `--target-branch` and no readable project default branch | 1 |
 | `gitlab_auth_failed` | GitLab returned 401 | 1 |
 | `gitlab_forbidden` | GitLab returned 403 | 1 |
 | `gitlab_not_found` | GitLab returned 404 | 1 |
+| `gitlab_conflict` | GitLab returned 409 (e.g. an open merge request already exists for the branch pair) | 1 |
 | `gitlab_rate_limited` | GitLab returned 429 | 1 |
 | `gitlab_api_error` | any other GitLab HTTP error | 1 |
 | `command_failed` | anything unclassified | 1 |
@@ -67,7 +71,7 @@ code: gitlab_not_found
 help[1]: Check the project path or ID and the merge request iid
 ```
 
-Request URLs and methods never leak into agent-facing messages. GitLab's semantic response message (e.g. `404 Project Not Found`) is kept — it is the meaning, not the noise.
+Request URLs and methods never leak into agent-facing messages. GitLab's semantic response message (e.g. `404 Project Not Found`) is kept — it is the meaning, not the noise. Response detail longer than 200 runes is truncated with an ellipsis so raw bodies (HTML error pages from proxies or wrong hosts) never flood the message.
 
 ## Idempotent mutations
 
@@ -82,3 +86,5 @@ help[1]: Run `auth login <token> --gitlab-base-url <url>` to authenticate again
 ```
 
 Apply the same rule to future mutations (closing an already-closed MR, deleting an absent label): acknowledge, report `noop`, exit 0. Reserve non-zero exits for intents that genuinely cannot be satisfied.
+
+The boundary of the rule is verifiability. `mr create` hitting a 409 because an open merge request already exists for the branch pair is **not** a no-op: the existing merge request may not match the requested title, description, or reviewers, so the intent cannot be confirmed as satisfied. It fails with `gitlab_conflict` (exit 1) and a hint to inspect the existing merge request. Report `noop` only when the observed state provably equals the requested state.

@@ -42,6 +42,9 @@ gl-axi mr 123 --full                  # all fields + complete description
 gl-axi mr list --state all --author octocat
 gl-axi mr list --fields source_branch,updated_at   # add columns
 gl-axi mr list --search "auth" --label bug --page 2
+gl-axi mr create --title "Fix auth"                # source = current branch, target = default branch
+gl-axi mr create --title "Fix auth" --description-file notes.md
+gl-axi mr create --title "Fix auth" --description-file - < notes.md
 ```
 
 - List rows default to `iid,title,state,author`; `--fields` adds
@@ -49,6 +52,12 @@ gl-axi mr list --search "auth" --label bug --page 2
 - Detail views truncate the description at 500 chars with an explicit size
   marker; rerun with `--full` when the output says it was truncated.
 - Every list ends with `count: N of M total` — the definitive result size.
+- `mr create` needs only `--title`; source/target branches default to the
+  current git branch and the project default branch. `--description` takes
+  inline text, `--description-file` a path (`-` = stdin) — never both.
+  `--assignee`/`--reviewer` take a username or numeric user ID (repeatable);
+  `--draft`, `--label`, `--milestone-id`, `--squash`,
+  `--remove-source-branch` cover the remaining basics.
 
 ## Auth
 

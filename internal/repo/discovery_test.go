@@ -112,6 +112,52 @@ func TestDiscoverOriginRequiresOrigin(t *testing.T) {
 	}
 }
 
+func TestCurrentBranchReturnsCheckedOutBranch(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git executable is not available")
+	}
+
+	dir := t.TempDir()
+	runGit(t, dir, "init")
+	runGit(t, dir, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "init")
+	runGit(t, dir, "checkout", "-b", "feature/current-branch")
+
+	got, err := CurrentBranch(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("CurrentBranch returned error: %v", err)
+	}
+	if got != "feature/current-branch" {
+		t.Fatalf("CurrentBranch = %q, want feature/current-branch", got)
+	}
+}
+
+func TestCurrentBranchRejectsDetachedHead(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git executable is not available")
+	}
+
+	dir := t.TempDir()
+	runGit(t, dir, "init")
+	runGit(t, dir, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "init")
+	runGit(t, dir, "checkout", "--detach")
+
+	_, err := CurrentBranch(context.Background(), dir)
+	if !errors.Is(err, ErrNoCurrentBranch) {
+		t.Fatalf("CurrentBranch error = %v, want ErrNoCurrentBranch", err)
+	}
+}
+
+func TestCurrentBranchRequiresRepository(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git executable is not available")
+	}
+
+	_, err := CurrentBranch(context.Background(), t.TempDir())
+	if !errors.Is(err, ErrNoCurrentBranch) {
+		t.Fatalf("CurrentBranch error = %v, want ErrNoCurrentBranch", err)
+	}
+}
+
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 

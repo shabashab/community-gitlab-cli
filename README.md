@@ -200,6 +200,22 @@ gl mr view '!123'              # explicit subcommand form, same behavior
 - `gl-axi mr list --fields draft,source_branch,target_branch,updated_at,web_url` adds columns to the compact schema; unknown field names are rejected with the valid set inline.
 - List filters: `--state`, `--search`, `--label`, `--author`, `--reviewer`, `--source-branch`, `--target-branch`, `--draft`, `--milestone`, `--order-by`, `--sort`, `--limit`, `--page`.
 
+### Creating merge requests
+
+```sh
+gl mr create --title "Add search endpoint"                     # source = current branch, target = default branch
+gl mr create --title "Fix auth" --draft --label bug --assignee mona --reviewer @alice
+gl mr create --title "Docs" --description-file notes.md --target-branch main
+git log -1 --format=%b | gl mr create --title "From commit" --description-file -
+```
+
+- `--title` is the only required flag. `--source-branch` defaults to the currently checked out git branch; `--target-branch` defaults to the project's default branch. Passing either flag skips the corresponding lookup.
+- The description is dual-input: `--description <text>` for inline content, `--description-file <path>` to read a file, `--description-file -` to read stdin. Passing both flags is a usage error. This `--<thing>` / `--<thing>-file` pair is the repo-wide convention for all content-bearing flags.
+- `--assignee` and `--reviewer` are repeatable and accept a username (optional `@` prefix, resolved through the GitLab users API) or an all-digits numeric user ID.
+- `--draft` prefixes the title with `Draft:` (GitLab derives draft status from the title); an existing `draft:` prefix is left untouched.
+- Remaining creation parameters map directly to the API: `--label` (repeatable), `--milestone-id`, `--target-project-id` for cross-fork merge requests, `--remove-source-branch`, `--squash`, `--allow-collaboration`. Boolean flags are sent only when explicitly passed.
+- A 409 from GitLab (an open merge request already exists for the branch pair) fails with `gitlab_conflict` and a hint to inspect the existing one.
+
 ## Agent Session Integrations (gl-axi)
 
 `gl-axi setup hooks` installs SessionStart integrations so agent sessions start with ambient GitLab context — the open merge requests of the repository the session starts in:

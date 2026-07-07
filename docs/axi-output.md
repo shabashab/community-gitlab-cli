@@ -61,6 +61,26 @@ Inside a GitLab repository the content is the project's open merge requests (up 
 - `--full` returns every field (assignees, reviewers, labels, milestone, changes_count, sha, timestamps, ...) and the complete description, with no hints — the view is self-contained.
 - String lists (assignees, reviewers, labels) are TOON inline arrays: `labels[2]: backend,search`.
 
+## Merge request create
+
+`gl-axi mr create --title <title>` posts a new merge request and returns the same compact `merge_request:` object as the view, so agents parse one shape for both. Unlike the self-contained view, a create always carries a next-step hint:
+
+```
+merge_request:
+  iid: 42
+  title: Add search endpoint
+  ...
+  web_url: "https://gitlab.example/group/app/-/merge_requests/42"
+help[1]: Run `mr view 42` to check merge status and pipeline results
+```
+
+- Only `--title` is required. `--source-branch` defaults to the current git branch; `--target-branch` defaults to the project's default branch (both lookups are skipped when the flag is passed).
+- Description is dual-input per the content-flags convention: `--description <text>` inline, or `--description-file <path>` (`-` reads stdin). Passing both is a usage error.
+- `--assignee`/`--reviewer` accept a username (optional `@` prefix, resolved via the users API) or an all-digits numeric user ID; both are repeatable.
+- `--draft` prefixes the title with `Draft:` client-side (GitLab derives draft status from the title). An existing `draft:` prefix is not doubled.
+- `--label` (repeatable), `--milestone-id`, `--target-project-id` (cross-fork), `--remove-source-branch`, `--squash`, and `--allow-collaboration` map directly to the API; the booleans are sent only when explicitly passed.
+- If the description exceeds the truncation limit, the output truncates it as usual and adds the `mr view <iid> --full` escape-hatch hint.
+
 ## Auth and project outputs
 
 - `auth login` → `login:` object plus hints for the next step.
@@ -76,3 +96,5 @@ When extending the axi surface, keep defaults narrow and information definitive:
 - Long-form content: truncate with a size marker, suggest `--full` only when truncated.
 - Always state totals and explicit zeros.
 - Put every escape hatch behind a flag, never in the default output.
+- Mutations return the compact detail view of the resulting resource plus a single next-step hint — never the full field set by default.
+- Content-bearing inputs follow the dual-flag convention: `--<thing>` for inline text, `--<thing>-file <path>` for file input with `-` meaning stdin (see `resolveContentFlag` in `internal/cli/flags.go`).

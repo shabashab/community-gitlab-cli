@@ -623,6 +623,40 @@ func writeMergeRequest(w io.Writer, format string, mode commandMode, mergeReques
 	return writeMergeRequestText(w, out, full)
 }
 
+// writeMergeRequestCreated renders a freshly created merge request. It reuses
+// the view's merge_request shape so agents parse one schema, but unlike the
+// self-contained view a create has a genuine next step, so the axi variant
+// always suggests checking merge status.
+func writeMergeRequestCreated(w io.Writer, format string, mode commandMode, mergeRequest *gitlab.MergeRequest, hints *mrHintContext) error {
+	if mode != commandModeAxi {
+		return writeMergeRequest(w, format, mode, mergeRequest, false, hints)
+	}
+
+	if mergeRequest == nil {
+		return errors.New("gitlab api returned an empty merge request response")
+	}
+
+	out, truncated := mergeRequestToOutput(mergeRequest, false, mode)
+
+	help := []string{fmt.Sprintf(
+		"Run `mr view %d%s` to check merge status and pipeline results",
+		out.IID,
+		hints.projectSuffix(),
+	)}
+	if truncated {
+		help = append(help, fmt.Sprintf(
+			"Run `mr view %d --full%s` for the complete description and all fields",
+			out.IID,
+			hints.projectSuffix(),
+		))
+	}
+
+	return writeAxi(w, format, axiMergeRequestViewOutput{
+		MergeRequest: compactMergeRequestView(out),
+		Help:         help,
+	})
+}
+
 func compactMergeRequestView(out mergeRequestOutput) axiMergeRequestCompact {
 	return axiMergeRequestCompact{
 		IID:                 out.IID,

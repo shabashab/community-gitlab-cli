@@ -10,8 +10,9 @@ import (
 )
 
 var (
-	ErrMissingOrigin = errors.New("missing git remote origin url")
-	ErrInvalidOrigin = errors.New("invalid git remote origin url")
+	ErrMissingOrigin   = errors.New("missing git remote origin url")
+	ErrInvalidOrigin   = errors.New("invalid git remote origin url")
+	ErrNoCurrentBranch = errors.New("no current git branch")
 )
 
 // Origin describes project coordinates inferred from a local git origin remote.
@@ -43,6 +44,31 @@ func DiscoverOrigin(ctx context.Context, workDir string) (Origin, error) {
 	}
 
 	return origin, nil
+}
+
+// CurrentBranch returns the branch checked out in the git repository at
+// workDir. A detached HEAD has no branch and fails with ErrNoCurrentBranch.
+func CurrentBranch(ctx context.Context, workDir string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	args := []string{"rev-parse", "--abbrev-ref", "HEAD"}
+	if strings.TrimSpace(workDir) != "" {
+		args = append([]string{"-C", workDir}, args...)
+	}
+
+	output, err := exec.CommandContext(ctx, "git", args...).Output()
+	if err != nil {
+		return "", fmt.Errorf("%w: run git rev-parse --abbrev-ref HEAD", ErrNoCurrentBranch)
+	}
+
+	branch := strings.TrimSpace(string(output))
+	if branch == "" || branch == "HEAD" {
+		return "", fmt.Errorf("%w: detached HEAD", ErrNoCurrentBranch)
+	}
+
+	return branch, nil
 }
 
 // ParseOriginURL extracts a project path and host base URL from a git remote URL.

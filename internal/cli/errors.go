@@ -95,17 +95,28 @@ func translateGitLabAPIError(err error) (message string, ok bool) {
 		short = "the token lacks permission for this action (403 Forbidden)"
 	case 404:
 		short = "GitLab resource not found (404)"
+	case 409:
+		short = "GitLab reports a conflict (409)"
 	case 429:
 		short = "GitLab API rate limit hit (429), wait and retry"
 	default:
 		short = fmt.Sprintf("GitLab API error (%d)", respErr.StatusCode)
 	}
 	if detail := strings.TrimSpace(respErr.Message); detail != "" && respErr.StatusCode != 401 {
+		// Non-API responses (proxies, wrong hosts) can carry whole HTML pages
+		// as the message; cap the detail so raw bodies never leak through.
+		if runes := []rune(detail); len(runes) > apiErrorDetailLimit {
+			detail = string(runes[:apiErrorDetailLimit]) + "…"
+		}
 		short = fmt.Sprintf("%s: %s", short, detail)
 	}
 
 	return strings.Replace(err.Error(), respErr.Error(), short, 1), true
 }
+
+// apiErrorDetailLimit caps how much of a GitLab error response body is echoed
+// into translated messages.
+const apiErrorDetailLimit = 200
 
 // classifyError maps an error to a stable machine-readable code, an
 // agent-facing message, and next-step suggestions.
@@ -146,6 +157,18 @@ func classifyError(err error, bin string) (code, message string, help []string) 
 		return "unknown_merge_request_action", message, []string{
 			fmt.Sprintf("Supported actions: view (alias: info) — run `%s mr --help` for usage", bin),
 		}
+	case errors.Is(err, errUserNotFound):
+		return "user_not_found", message, []string{
+			"Check the username spelling, or pass a numeric user ID to --assignee/--reviewer",
+		}
+	case errors.Is(err, errMissingSourceBranch):
+		return "missing_source_branch", message, []string{
+			"Pass --source-branch <branch> explicitly",
+		}
+	case errors.Is(err, errMissingTargetBranch):
+		return "missing_target_branch", message, []string{
+			"Pass --target-branch <branch> explicitly",
+		}
 	}
 
 	if translated, ok := translateGitLabAPIError(err); ok {
@@ -164,6 +187,10 @@ func classifyError(err error, bin string) (code, message string, help []string) 
 		case 404:
 			return "gitlab_not_found", translated, []string{
 				"Check the project path or ID and the merge request iid",
+			}
+		case 409:
+			return "gitlab_conflict", translated, []string{
+				fmt.Sprintf("An open merge request for this source/target branch pair may already exist — run `%s mr list --source-branch <branch>`", bin),
 			}
 		case 429:
 			return "gitlab_rate_limited", translated, []string{
