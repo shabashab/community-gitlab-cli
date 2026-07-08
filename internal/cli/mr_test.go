@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shabashab/community-gitlab-cli/internal/repo"
 	"github.com/spf13/cobra"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
@@ -277,6 +279,17 @@ func TestParseMRListFieldsCanonicalOrder(t *testing.T) {
 func executeMRRootCommand(t *testing.T, baseURL string, extraArgs ...string) string {
 	t.Helper()
 
+	out, err := executeMRRootCommandErr(t, baseURL, extraArgs...)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	return out
+}
+
+func executeMRRootCommandErr(t *testing.T, baseURL string, extraArgs ...string) (string, error) {
+	t.Helper()
+
 	var out bytes.Buffer
 	cmd, _ := newRootCommand("gl", "test", "test", commandModeStandard)
 	cmd.SetOut(&out)
@@ -292,11 +305,237 @@ func executeMRRootCommand(t *testing.T, baseURL string, extraArgs ...string) str
 	args = append(args, extraArgs...)
 	cmd.SetArgs(args)
 
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("Execute returned error: %v", err)
+	err := cmd.Execute()
+
+	return out.String(), err
+}
+
+// stubCurrentBranch overrides the currentBranchFunc test seam for the duration
+// of the test, so cli tests never shell out to the real repository.
+func stubCurrentBranch(t *testing.T, branch string, err error) {
+	t.Helper()
+
+	original := currentBranchFunc
+	currentBranchFunc = func(context.Context, string) (string, error) { return branch, err }
+	t.Cleanup(func() { currentBranchFunc = original })
+}
+
+// newMRCurrentTestServer stubs the two endpoints a "current" ref touches: the
+// list lookup by source branch (query captured) and the single-MR GET (path
+// recorded). listBody is the raw JSON array served by the list endpoint.
+func newMRCurrentTestServer(t *testing.T, listBody string) (*httptest.Server, *url.Values, *string) {
+	t.Helper()
+
+	var listQuery url.Values
+	var viewPath string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		switch r.URL.EscapedPath() {
+		case "/api/v4/projects/group%2Fproject/merge_requests":
+			listQuery = r.URL.Query()
+			fmt.Fprint(w, listBody)
+		case "/api/v4/projects/group%2Fproject/merge_requests/123":
+			viewPath = r.URL.EscapedPath()
+			fmt.Fprint(w, mergeRequestJSON(123, "short description"))
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.EscapedPath())
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+
+	return server, &listQuery, &viewPath
+}
+
+func TestResolveMergeRequestRefDelegatesNumeric(t *testing.T) {
+	cmd := &cobra.Command{}
+
+	for ref, want := range map[string]int64{"123": 123, "!123": 123} {
+		got, err := resolveMergeRequestRef(cmd, &rootOptions{}, &projectOptions{}, ref)
+		if err != nil {
+			t.Fatalf("resolveMergeRequestRef(%q) returned error: %v", ref, err)
+		}
+		if got != want {
+			t.Fatalf("resolveMergeRequestRef(%q) = %d, want %d", ref, got, want)
+		}
 	}
 
-	return out.String()
+	_, err := resolveMergeRequestRef(cmd, &rootOptions{}, &projectOptions{}, "abc")
+	if !errors.Is(err, errInvalidMergeRequestRef) {
+		t.Fatalf("resolveMergeRequestRef(abc) error = %v, want errInvalidMergeRequestRef", err)
+	}
+	if exitCodeForError(err) != 2 {
+		t.Fatalf("exitCodeForError = %d, want 2 for usage error", exitCodeForError(err))
+	}
+}
+
+func TestMRCommandDispatchesCurrent(t *testing.T) {
+	stubCurrentBranch(t, "feature/search", nil)
+
+	server, listQuery, viewPath := newMRCurrentTestServer(t, "["+mergeRequestJSON(123, "short description")+"]")
+	defer server.Close()
+
+	out := executeMRRootCommand(t, server.URL, "current", "--full")
+
+	want := map[string]string{
+		"source_branch": "feature/search",
+		"state":         "opened",
+		"per_page":      "10",
+	}
+	for key, value := range want {
+		if got := listQuery.Get(key); got != value {
+			t.Fatalf("list query param %s = %q, want %q", key, got, value)
+		}
+	}
+	if *viewPath != "/api/v4/projects/group%2Fproject/merge_requests/123" {
+		t.Fatalf("view path = %q, want resolved single merge request path", *viewPath)
+	}
+	if !strings.Contains(out, `"iid": 123`) {
+		t.Fatalf("output = %q, want iid fragment", out)
+	}
+}
+
+func TestMRCommandDispatchesBangCurrent(t *testing.T) {
+	stubCurrentBranch(t, "feature/search", nil)
+
+	server, listQuery, viewPath := newMRCurrentTestServer(t, "["+mergeRequestJSON(123, "short description")+"]")
+	defer server.Close()
+
+	executeMRRootCommand(t, server.URL, "!current")
+
+	if got := listQuery.Get("source_branch"); got != "feature/search" {
+		t.Fatalf("list query param source_branch = %q, want feature/search", got)
+	}
+	if *viewPath != "/api/v4/projects/group%2Fproject/merge_requests/123" {
+		t.Fatalf("view path = %q, want resolved single merge request path", *viewPath)
+	}
+}
+
+func TestMRViewCurrentResolvesSourceBranch(t *testing.T) {
+	stubCurrentBranch(t, "feature/search", nil)
+
+	server, listQuery, viewPath := newMRCurrentTestServer(t, "["+mergeRequestJSON(123, "short description")+"]")
+	defer server.Close()
+
+	out := executeMRRootCommand(t, server.URL, "view", "current")
+
+	if got := listQuery.Get("source_branch"); got != "feature/search" {
+		t.Fatalf("list query param source_branch = %q, want feature/search", got)
+	}
+	if *viewPath != "/api/v4/projects/group%2Fproject/merge_requests/123" {
+		t.Fatalf("view path = %q, want resolved single merge request path", *viewPath)
+	}
+	if !strings.Contains(out, `"iid": 123`) {
+		t.Fatalf("output = %q, want iid fragment", out)
+	}
+}
+
+func TestMRCurrentNoOpenMergeRequest(t *testing.T) {
+	stubCurrentBranch(t, "feature/search", nil)
+
+	server, _, _ := newMRCurrentTestServer(t, "[]")
+	defer server.Close()
+
+	_, err := executeMRRootCommandErr(t, server.URL, "current")
+	if !errors.Is(err, errNoCurrentMergeRequest) {
+		t.Fatalf("Execute error = %v, want errNoCurrentMergeRequest", err)
+	}
+	if exitCodeForError(err) != 1 {
+		t.Fatalf("exitCodeForError = %d, want 1 for runtime error", exitCodeForError(err))
+	}
+
+	var out bytes.Buffer
+	writeCommandError(&out, commandModeAxi, "toon", "gl-axi", err)
+	got := out.String()
+	if !strings.Contains(got, "code: no_current_merge_request") {
+		t.Fatalf("rendered error = %q, want no_current_merge_request code", got)
+	}
+	if !strings.Contains(got, "--source-branch feature/search") {
+		t.Fatalf("rendered error = %q, want source-branch hint", got)
+	}
+	if !strings.Contains(got, "--project group/project") {
+		t.Fatalf("rendered error = %q, want hint carrying --project", got)
+	}
+	if strings.Contains(got, server.URL) {
+		t.Fatalf("rendered error = %q, must not leak the server URL", got)
+	}
+}
+
+func TestMRCurrentAmbiguousListsCandidates(t *testing.T) {
+	stubCurrentBranch(t, "feature/search", nil)
+
+	listBody := "[" + mergeRequestJSON(123, "one") + "," + mergeRequestJSON(120, "two") + "]"
+	server, _, _ := newMRCurrentTestServer(t, listBody)
+	defer server.Close()
+
+	_, err := executeMRRootCommandErr(t, server.URL, "current")
+	if !errors.Is(err, errAmbiguousCurrentMergeRequest) {
+		t.Fatalf("Execute error = %v, want errAmbiguousCurrentMergeRequest", err)
+	}
+	if exitCodeForError(err) != 1 {
+		t.Fatalf("exitCodeForError = %d, want 1 for runtime error", exitCodeForError(err))
+	}
+	if !strings.Contains(err.Error(), "!123") || !strings.Contains(err.Error(), "!120") {
+		t.Fatalf("error message = %q, want both candidate iids", err.Error())
+	}
+
+	var out bytes.Buffer
+	writeCommandError(&out, commandModeAxi, "toon", "gl-axi", err)
+	got := out.String()
+	if !strings.Contains(got, "code: ambiguous_current_merge_request") {
+		t.Fatalf("rendered error = %q, want ambiguous_current_merge_request code", got)
+	}
+	if !strings.Contains(got, "mr view 123 --project group/project") {
+		t.Fatalf("rendered error = %q, want explicit-iid hint carrying --project", got)
+	}
+}
+
+func TestMRCurrentDetachedHeadFails(t *testing.T) {
+	stubCurrentBranch(t, "", fmt.Errorf("%w: detached HEAD", repo.ErrNoCurrentBranch))
+
+	handlerCalled := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		handlerCalled = true
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, "{}")
+	}))
+	defer server.Close()
+
+	_, err := executeMRRootCommandErr(t, server.URL, "current")
+	if !errors.Is(err, errMissingCurrentBranch) {
+		t.Fatalf("Execute error = %v, want errMissingCurrentBranch", err)
+	}
+	if exitCodeForError(err) != 1 {
+		t.Fatalf("exitCodeForError = %d, want 1 for runtime error", exitCodeForError(err))
+	}
+	if handlerCalled {
+		t.Fatal("GitLab API was called although the branch lookup failed")
+	}
+
+	var out bytes.Buffer
+	writeCommandError(&out, commandModeAxi, "toon", "gl-axi", err)
+	if !strings.Contains(out.String(), "code: missing_current_branch") {
+		t.Fatalf("rendered error = %q, want missing_current_branch code", out.String())
+	}
+}
+
+func TestMRCurrentUpdateRedirect(t *testing.T) {
+	stubCurrentBranch(t, "feature/search", nil)
+
+	server, _, _ := newMRCurrentTestServer(t, "["+mergeRequestJSON(123, "one")+"]")
+	defer server.Close()
+
+	_, err := executeMRRootCommandErr(t, server.URL, "current", "update")
+	if err == nil {
+		t.Fatal("Execute returned nil error, want update-redirect usage error")
+	}
+	if exitCodeForError(err) != 2 {
+		t.Fatalf("exitCodeForError = %d, want 2 for usage error", exitCodeForError(err))
+	}
+	if !strings.Contains(err.Error(), "!123") {
+		t.Fatalf("error message = %q, want the resolved iid in the redirect", err.Error())
+	}
 }
 
 func TestWriteMergeRequestAxiTOONTruncatesDescription(t *testing.T) {

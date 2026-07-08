@@ -42,7 +42,7 @@ Design rules:
 | Code | Trigger | Exit |
 | ---- | ------- | ---- |
 | `usage_error` | invalid invocation not covered by a more specific code | 2 |
-| `invalid_merge_request_ref` | `mr` reference that is not `!<iid>` / `<iid>` | 2 |
+| `invalid_merge_request_ref` | `mr` reference that is not `!<iid>` / `<iid>` / `current` | 2 |
 | `unknown_merge_request_action` | unsupported per-MR action (supported: `view` alias `info`, `update` as `mr update !<iid>`) | 2 |
 | `no_update_flags` | `mr update` with no field flags — nothing to change | 2 |
 | `missing_gitlab_token` | no token from flag, env, or credential store | 1 |
@@ -54,6 +54,9 @@ Design rules:
 | `user_not_found` | `--assignee`/`--reviewer` username with no GitLab match | 1 |
 | `missing_source_branch` | `mr create` without `--source-branch` and no current git branch (detached HEAD, not a repository) | 1 |
 | `missing_target_branch` | `mr create` without `--target-branch` and no readable project default branch | 1 |
+| `missing_current_branch` | `current` ref with no current git branch (detached HEAD, not a repository) | 1 |
+| `no_current_merge_request` | `current` ref: the current branch has no open merge request | 1 |
+| `ambiguous_current_merge_request` | `current` ref: several open merge requests share the current source branch (candidates listed in the message) | 1 |
 | `gitlab_auth_failed` | GitLab returned 401 | 1 |
 | `gitlab_forbidden` | GitLab returned 403 | 1 |
 | `gitlab_not_found` | GitLab returned 404 | 1 |

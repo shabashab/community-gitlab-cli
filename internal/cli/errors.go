@@ -38,6 +38,33 @@ func exitCodeForError(err error) int {
 	return 1
 }
 
+// helpError attaches next-step hints built at the error site (where invocation
+// context such as the branch name or --project is known) to a runtime error.
+// Unlike usageError it does not change the exit code: runtime failures stay 1.
+type helpError struct {
+	err  error
+	help []string
+}
+
+func (e *helpError) Error() string { return e.err.Error() }
+
+func (e *helpError) Unwrap() error { return e.err }
+
+func newHelpError(err error, help ...string) error {
+	return &helpError{err: err, help: help}
+}
+
+// helpFromError returns hints attached at the error site when present,
+// otherwise the fallback hints.
+func helpFromError(err error, fallback ...string) []string {
+	var withHelp *helpError
+	if errors.As(err, &withHelp) && len(withHelp.help) > 0 {
+		return withHelp.help
+	}
+
+	return fallback
+}
+
 // wrapArgsValidator converts cobra positional-argument failures into usage
 // errors so they exit 2 and carry a per-command help hint.
 func wrapArgsValidator(validator cobra.PositionalArgs) cobra.PositionalArgs {
@@ -151,7 +178,7 @@ func classifyError(err error, bin string) (code, message string, help []string) 
 		}
 	case errors.Is(err, errInvalidMergeRequestRef):
 		return "invalid_merge_request_ref", message, []string{
-			fmt.Sprintf("Reference merge requests as !<iid> or <iid>, for example `%s mr !123`", bin),
+			fmt.Sprintf("Reference merge requests as !<iid>, <iid>, or current, for example `%s mr !123` or `%s mr current`", bin, bin),
 		}
 	case errors.Is(err, errUnknownMergeRequestAction):
 		return "unknown_merge_request_action", message, []string{
@@ -173,6 +200,21 @@ func classifyError(err error, bin string) (code, message string, help []string) 
 		return "no_update_flags", message, []string{
 			fmt.Sprintf("Pass at least one field flag — run `%s mr update --help` for the list", bin),
 		}
+	case errors.Is(err, errMissingCurrentBranch):
+		return "missing_current_branch", message, []string{
+			fmt.Sprintf("Pass an explicit iid instead of current, e.g. `%s mr view 123`", bin),
+			"Check out a branch (not a detached HEAD) inside the repository and retry",
+		}
+	case errors.Is(err, errNoCurrentMergeRequest):
+		return "no_current_merge_request", message, helpFromError(err,
+			fmt.Sprintf("Run `%s mr list --source-branch <branch> --state all` to inspect merge requests for the branch", bin),
+			fmt.Sprintf("Pass an explicit iid, e.g. `%s mr view <iid>`", bin),
+		)
+	case errors.Is(err, errAmbiguousCurrentMergeRequest):
+		return "ambiguous_current_merge_request", message, helpFromError(err,
+			fmt.Sprintf("Pass one of the matching iids explicitly, e.g. `%s mr view <iid>`", bin),
+			fmt.Sprintf("Run `%s mr list --source-branch <branch>` to compare the candidates", bin),
+		)
 	}
 
 	if translated, ok := translateGitLabAPIError(err); ok {
