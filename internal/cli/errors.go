@@ -155,7 +155,19 @@ func classifyError(err error, bin string) (code, message string, help []string) 
 		}
 	case errors.Is(err, errUnknownMergeRequestAction):
 		return "unknown_merge_request_action", message, []string{
-			fmt.Sprintf("Supported actions: view (alias: info), update — run `%s mr --help` for usage", bin),
+			fmt.Sprintf("Supported actions: view (alias: info), update, discussions — run `%s mr --help` for usage", bin),
+		}
+	case errors.Is(err, errInvalidDiscussionRef):
+		return "invalid_discussion_ref", message, []string{
+			fmt.Sprintf("Discussion IDs are 40-character hex strings; copy one from `%s mr discussions !<iid>`", bin),
+		}
+	case errors.Is(err, errAmbiguousDiscussionRef):
+		return "ambiguous_discussion_ref", message, []string{
+			fmt.Sprintf("Pass more ID characters — run `%s mr discussions !<iid> --fields id_full` for full IDs", bin),
+		}
+	case errors.Is(err, errDiscussionNotFound):
+		return "discussion_not_found", message, []string{
+			fmt.Sprintf("Run `%s mr discussions !<iid>` to list existing threads and copy an ID", bin),
 		}
 	case errors.Is(err, errUserNotFound):
 		return "user_not_found", message, []string{
