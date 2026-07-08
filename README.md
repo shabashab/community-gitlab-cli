@@ -196,6 +196,9 @@ gl mr current                  # the MR of the currently checked out branch
 gl mr approvals 123            # approval status for one merge request
 gl mr approve 123 --sha f5b0c3d2e1
 gl mr unapprove 123
+gl mr merge 123 --sha f5b0c3d2e1
+gl mr close 123
+gl mr reopen 123
 ```
 
 - `gl mr list` renders a table; `--output json` returns `{merge_requests, count, total, page, total_pages}`.
@@ -251,6 +254,23 @@ gl mr update current --ready                   # update the current branch's MR
 - `--draft` and `--ready` (mutually exclusive) toggle the `Draft:` title prefix. Without `--title`, the current title is fetched first so the prefix change applies to the real title. Marking an already-ready merge request `--ready` succeeds (exit 0).
 - Boolean flags (`--squash`, `--remove-source-branch`, `--allow-collaboration`, `--discussion-locked`) are sent only when explicitly passed; the `=false` form sends an explicit disable.
 - The source branch and cross-fork target project cannot be changed after creation.
+
+### Finalizing merge requests
+
+```sh
+gl mr merge 123 --sha f5b0c3d2e1             # merge only if the head still matches
+gl mr merge 123 --auto-merge --squash=false  # ask GitLab to merge after pipeline success
+gl mr merge 123 --merge-commit-message-file message.md
+gl mr close 123
+gl mr reopen 123
+gl mr merge current --remove-source-branch
+```
+
+- `mr merge <!iid|iid|current>` uses GitLab's merge endpoint. `--sha` is optional but recommended for automation that already inspected a specific head commit; an empty `--sha` is a usage error.
+- `--auto-merge`, `--squash`, and `--remove-source-branch` map to GitLab's merge options. `--squash=false` and `--remove-source-branch=false` send explicit false values.
+- Merge and squash commit messages follow the content-flag convention: `--merge-commit-message` / `--merge-commit-message-file` and `--squash-commit-message` / `--squash-commit-message-file`; `-` reads stdin.
+- `mr close` and `mr reopen` use GitLab's `state_event` update internally. Closing an already closed MR, reopening an already open MR, or merging an already merged MR is reported as `noop: true` and exits 0 after the state is verified.
+- Incompatible states are not hidden as no-ops: for example, merging a closed MR surfaces GitLab's runtime error.
 
 ### Merge request discussions
 

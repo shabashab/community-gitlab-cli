@@ -182,7 +182,7 @@ func classifyError(err error, bin string) (code, message string, help []string) 
 		}
 	case errors.Is(err, errUnknownMergeRequestAction):
 		return "unknown_merge_request_action", message, []string{
-			fmt.Sprintf("Supported actions: view (alias: info), approvals, approve, unapprove, diff, update, discussions, comment, drafts — run `%s mr --help` for usage", bin),
+			fmt.Sprintf("Supported actions: view (alias: info), approvals, approve, unapprove, merge, close, reopen, diff, update, discussions, comment, drafts — run `%s mr --help` for usage", bin),
 		}
 	case errors.Is(err, errInvalidDiscussionRef):
 		return "invalid_discussion_ref", message, []string{

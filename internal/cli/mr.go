@@ -124,6 +124,21 @@ source branch is the currently checked out git branch.`,
 					fmt.Errorf("mr !%d unapprove runs as a subcommand", iid),
 					fmt.Sprintf("Run `mr unapprove !%d` to remove your approval", iid),
 				)
+			case "merge":
+				return newUsageError(
+					fmt.Errorf("mr !%d merge takes flags and runs as a subcommand", iid),
+					fmt.Sprintf("Run `mr merge !%d` — pass `--sha <sha>` if you need an optimistic head check", iid),
+				)
+			case "close":
+				return newUsageError(
+					fmt.Errorf("mr !%d close runs as a subcommand", iid),
+					fmt.Sprintf("Run `mr close !%d` to close the merge request", iid),
+				)
+			case "reopen":
+				return newUsageError(
+					fmt.Errorf("mr !%d reopen runs as a subcommand", iid),
+					fmt.Sprintf("Run `mr reopen !%d` to reopen the merge request", iid),
+				)
 			case "diff", "changes":
 				return runMRDiff(cmd, rootOpts, projOpts, newMRDiffListOptions(), iid)
 			case "update":
@@ -148,7 +163,7 @@ source branch is the currently checked out git branch.`,
 				)
 			default:
 				return newUsageError(fmt.Errorf(
-					"%w %q for merge request !%d: supported actions: view (alias: info), approvals, approve (as `mr approve !<iid>`), unapprove (as `mr unapprove !<iid>`), diff, update (as `mr update !<iid>`), discussions (as `mr discussions !<iid>`), comment (as `mr comment !<iid>`), drafts (as `mr drafts !<iid>`)",
+					"%w %q for merge request !%d: supported actions: view (alias: info), approvals, approve (as `mr approve !<iid>`), unapprove (as `mr unapprove !<iid>`), merge (as `mr merge !<iid>`), close (as `mr close !<iid>`), reopen (as `mr reopen !<iid>`), diff, update (as `mr update !<iid>`), discussions (as `mr discussions !<iid>`), comment (as `mr comment !<iid>`), drafts (as `mr drafts !<iid>`)",
 					errUnknownMergeRequestAction,
 					action,
 					iid,
@@ -177,6 +192,9 @@ source branch is the currently checked out git branch.`,
 	cmd.AddCommand(newMRApprovalsCommand(rootOpts, projOpts))
 	cmd.AddCommand(newMRApproveCommand(rootOpts, projOpts))
 	cmd.AddCommand(newMRUnapproveCommand(rootOpts, projOpts))
+	cmd.AddCommand(newMRMergeCommand(rootOpts, projOpts))
+	cmd.AddCommand(newMRCloseCommand(rootOpts, projOpts))
+	cmd.AddCommand(newMRReopenCommand(rootOpts, projOpts))
 	cmd.AddCommand(newMRDiscussionsCommand(rootOpts, projOpts))
 	cmd.AddCommand(newMRDiscussionCommand(rootOpts, projOpts))
 	cmd.AddCommand(newMRCommentCommand(rootOpts, projOpts))

@@ -43,7 +43,7 @@ Design rules:
 | ---- | ------- | ---- |
 | `usage_error` | invalid invocation not covered by a more specific code | 2 |
 | `invalid_merge_request_ref` | `mr` reference that is not `!<iid>` / `<iid>` / `current` | 2 |
-| `unknown_merge_request_action` | unsupported per-MR action (supported: `view` alias `info`, `diff`, `update` as `mr update !<iid>`, `discussions` as `mr discussions !<iid>`) | 2 |
+| `unknown_merge_request_action` | unsupported per-MR action (supported: `view` alias `info`, `approvals`, `approve`/`unapprove`, `merge`, `close`, `reopen`, `diff`, `update` as `mr update !<iid>`, `discussions` as `mr discussions !<iid>`, `comment`, `drafts`) | 2 |
 | `no_update_flags` | `mr update` with no field flags — nothing to change | 2 |
 | `invalid_discussion_ref` | discussion reference that is not a 40-character hex ID or a prefix of one | 2 |
 | `ambiguous_discussion_ref` | discussion ID prefix matching more than one thread (match count in the message) | 2 |
@@ -100,6 +100,13 @@ help[1]: Run `auth login <token> --gitlab-base-url <url>` to authenticate again
 ```
 
 Apply the same rule to future mutations (closing an already-closed MR, deleting an absent label): acknowledge, report `noop`, exit 0. Reserve non-zero exits for intents that genuinely cannot be satisfied.
+
+The merge-request finalization commands apply this rule directly:
+
+- `mr merge` on an already merged merge request reports `noop: true` after reading the MR state.
+- `mr close` on an already closed merge request reports `noop: true`.
+- `mr reopen` on an already open merge request reports `noop: true`.
+- Race-like merge failures are verified with a follow-up read; if the MR is now merged, the command reports the verified no-op/success instead of failing.
 
 The boundary of the rule is verifiability. `mr create` hitting a 409 because an open merge request already exists for the branch pair is **not** a no-op: the existing merge request may not match the requested title, description, or reviewers, so the intent cannot be confirmed as satisfied. It fails with `gitlab_conflict` (exit 1) and a hint to inspect the existing merge request. Report `noop` only when the observed state provably equals the requested state.
 

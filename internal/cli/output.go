@@ -230,6 +230,13 @@ type axiMergeRequestViewOutput struct {
 	Help         []string `json:"help,omitempty" toon:"help,omitempty"`
 }
 
+type mergeRequestActionOutput struct {
+	MergeRequest any      `json:"merge_request" toon:"merge_request"`
+	Action       string   `json:"action" toon:"action"`
+	Noop         bool     `json:"noop,omitempty" toon:"noop,omitempty"`
+	Help         []string `json:"help,omitempty" toon:"help,omitempty"`
+}
+
 type mergeRequestListOutput struct {
 	MergeRequests []mergeRequestRowOutput `json:"merge_requests" toon:"merge_requests"`
 	Count         int                     `json:"count" toon:"-"`
@@ -726,6 +733,92 @@ func writeMergeRequestCreated(w io.Writer, format string, mode commandMode, merg
 		MergeRequest: compactMergeRequestView(out),
 		Help:         help,
 	})
+}
+
+func writeMergeRequestAction(w io.Writer, format string, mode commandMode, mergeRequest *gitlab.MergeRequest, action string, noop bool, hints *mrHintContext) error {
+	if mergeRequest == nil {
+		return errors.New("gitlab api returned an empty merge request response")
+	}
+
+	out, _ := mergeRequestToOutput(mergeRequest, false, mode)
+	view := compactMergeRequestView(out)
+
+	if mode == commandModeAxi {
+		return writeAxi(w, format, mergeRequestActionOutput{
+			MergeRequest: view,
+			Action:       action,
+			Noop:         noop,
+			Help:         mergeRequestActionHelp(action, out.IID, hints),
+		})
+	}
+
+	format, err := normalizeOutputFormat(format, mode)
+	if err != nil {
+		return err
+	}
+
+	if format == "json" {
+		return writeJSON(w, mergeRequestActionOutput{
+			MergeRequest: view,
+			Action:       action,
+			Noop:         noop,
+		})
+	}
+
+	if noop {
+		if _, err := fmt.Fprintf(w, "merge request !%d already %s (no-op)\n", out.IID, mergeRequestActionDoneState(action)); err != nil {
+			return err
+		}
+	} else {
+		if _, err := fmt.Fprintf(w, "%s: merge request !%d\n", mergeRequestActionPastTense(action), out.IID); err != nil {
+			return err
+		}
+	}
+
+	return writeMergeRequestText(w, out, false)
+}
+
+func mergeRequestActionHelp(action string, iid int64, hints *mrHintContext) []string {
+	suffix := hints.projectSuffix()
+
+	switch action {
+	case "close":
+		return []string{
+			fmt.Sprintf("Run `mr reopen %d%s` to reopen it", iid, suffix),
+			fmt.Sprintf("Run `mr view %d%s` to inspect the closed merge request", iid, suffix),
+		}
+	case "reopen":
+		return []string{
+			fmt.Sprintf("Run `mr view %d%s` to check merge status and pipeline results", iid, suffix),
+			fmt.Sprintf("Run `mr merge %d%s` when it is ready to merge", iid, suffix),
+		}
+	default:
+		return []string{
+			fmt.Sprintf("Run `mr view %d%s` to verify the merge request state", iid, suffix),
+		}
+	}
+}
+
+func mergeRequestActionPastTense(action string) string {
+	switch action {
+	case "close":
+		return "closed"
+	case "reopen":
+		return "reopened"
+	default:
+		return "merged"
+	}
+}
+
+func mergeRequestActionDoneState(action string) string {
+	switch action {
+	case "close":
+		return "closed"
+	case "reopen":
+		return "open"
+	default:
+		return "merged"
+	}
 }
 
 func compactMergeRequestView(out mergeRequestOutput) axiMergeRequestCompact {

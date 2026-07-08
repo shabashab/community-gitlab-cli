@@ -95,6 +95,39 @@ help[1]: Run `mr view 42` to check merge status and pipeline results
 - Description is dual-input per the content-flags convention: `--description <text>` inline, or `--description-file <path>` (`-` reads stdin).
 - The source branch and cross-fork target project cannot be changed after creation; the update API has no such fields.
 
+## Merge request finalization
+
+`gl-axi mr merge <!iid|iid|current>`, `mr close`, and `mr reopen` return a compact mutation wrapper:
+
+```
+merge_request:
+  iid: 42
+  title: Add search endpoint
+  state: merged
+  ...
+action: merge
+help[1]: Run `mr view 42` to verify the merge request state
+```
+
+Verified no-ops include `noop: true` and still exit 0:
+
+```
+merge_request:
+  iid: 42
+  title: Add search endpoint
+  state: closed
+  ...
+action: close
+noop: true
+help[1]: Run `mr reopen 42` to reopen it
+```
+
+- `mr merge` calls GitLab's merge endpoint. `--sha <sha>` is the optional optimistic head guard; an explicitly empty `--sha` is a usage error.
+- `--auto-merge`, `--squash`, and `--remove-source-branch` map to GitLab merge options. `--squash=false` and `--remove-source-branch=false` send explicit false values.
+- Commit messages follow the content-flags convention: `--merge-commit-message` / `--merge-commit-message-file` and `--squash-commit-message` / `--squash-commit-message-file`; `-` reads stdin.
+- `mr close` and `mr reopen` use GitLab's `state_event` update internally. Closing an already closed MR, reopening an already open MR, and merging an already merged MR are verified no-ops (`noop: true`, exit 0).
+- Incompatible states are not treated as no-ops. For example, merging a closed MR surfaces GitLab's API error.
+
 ## Merge request approvals
 
 `gl-axi mr approvals <!iid|iid|current>` returns compact approval status:

@@ -53,6 +53,10 @@ gl-axi mr approvals 123                           # approval status
 gl-axi mr approvals 123 --full                    # rules + approver metadata
 gl-axi mr approve 123 --sha f5b0c3d2e1            # approve current head
 gl-axi mr unapprove 123                           # remove your approval
+gl-axi mr merge 123 --sha f5b0c3d2e1              # merge current head
+gl-axi mr merge 123 --auto-merge                  # merge after pipeline success
+gl-axi mr close 123                               # close without merging
+gl-axi mr reopen 123                              # reopen a closed MR
 gl-axi mr discussions 123                          # unresolved review threads
 gl-axi mr discussions current --order-by updated_at --sort desc
 gl-axi mr discussion 123 6f9a1c2d                  # full conversation of one thread
@@ -90,8 +94,15 @@ gl-axi mr drafts publish 123 --all                 # publish the pending review
   configured approver groups. `mr approve <iid> [--sha <sha>]` approves as
   the current user; `mr unapprove <iid>` removes your approval and refreshes
   status.
-- The ref `current` (view, update, approvals, approve, unapprove,
-  discussions, discussion) resolves via the current git branch to its open MR.
+- `mr merge <iid>` finalizes the MR through GitLab's merge endpoint. Prefer
+  `--sha <head>` after inspecting an MR so the merge is guarded against head
+  changes. `--auto-merge`, `--squash[=false]`,
+  `--remove-source-branch[=false]`, `--merge-commit-message[-file]`, and
+  `--squash-commit-message[-file]` expose GitLab's merge controls. `mr close`
+  and `mr reopen` change MR state. Already merged/closed/open states are
+  verified no-ops (`noop: true`, exit 0).
+- The ref `current` (view, update, approvals, approve, unapprove, merge,
+  close, reopen, discussions, discussion) resolves via the current git branch to its open MR.
   Open MRs only; zero or multiple matches fail loud (exit 1, codes
   `no_current_merge_request` /
   `ambiguous_current_merge_request` with candidates listed), as does an
