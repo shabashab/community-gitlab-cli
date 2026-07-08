@@ -182,7 +182,7 @@ func classifyError(err error, bin string) (code, message string, help []string) 
 		}
 	case errors.Is(err, errUnknownMergeRequestAction):
 		return "unknown_merge_request_action", message, []string{
-			fmt.Sprintf("Supported actions: view (alias: info), update, discussions — run `%s mr --help` for usage", bin),
+			fmt.Sprintf("Supported actions: view (alias: info), update, discussions, comment, drafts — run `%s mr --help` for usage", bin),
 		}
 	case errors.Is(err, errInvalidDiscussionRef):
 		return "invalid_discussion_ref", message, []string{
@@ -211,6 +211,26 @@ func classifyError(err error, bin string) (code, message string, help []string) 
 	case errors.Is(err, errNoUpdateFlags):
 		return "no_update_flags", message, []string{
 			fmt.Sprintf("Pass at least one field flag — run `%s mr update --help` for the list", bin),
+		}
+	case errors.Is(err, errMergeRequestDiffNotReady):
+		return "merge_request_diff_not_ready", message, helpFromError(err,
+			"GitLab is still preparing the merge request diff — retry in a few seconds",
+		)
+	case errors.Is(err, errFileNotInDiff):
+		return "file_not_in_diff", message, helpFromError(err,
+			"Pass --file with the path of a file changed by the merge request",
+		)
+	case errors.Is(err, errLineNotInDiff):
+		return "line_not_in_diff", message, helpFromError(err,
+			"Only lines visible in the merge request diff can carry comments — --line addresses the new file, --old-line the old one",
+		)
+	case errors.Is(err, errDiffTooLarge):
+		return "diff_too_large", message, helpFromError(err,
+			"Drop --line/--old-line to comment on the file itself instead",
+		)
+	case errors.Is(err, errInvalidDraftNoteID):
+		return "invalid_draft_note_id", message, []string{
+			fmt.Sprintf("Draft note IDs are numeric — copy one from `%s mr drafts !<iid>`", bin),
 		}
 	case errors.Is(err, errMissingCurrentBranch):
 		return "missing_current_branch", message, []string{
@@ -243,9 +263,9 @@ func classifyError(err error, bin string) (code, message string, help []string) 
 				"Use a token with sufficient scopes and project access",
 			}
 		case 404:
-			return "gitlab_not_found", translated, []string{
+			return "gitlab_not_found", translated, helpFromError(err,
 				"Check the project path or ID and the merge request iid",
-			}
+			)
 		case 409:
 			return "gitlab_conflict", translated, []string{
 				fmt.Sprintf("An open merge request for this source/target branch pair may already exist — run `%s mr list --source-branch <branch>`", bin),
