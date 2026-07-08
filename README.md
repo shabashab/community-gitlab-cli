@@ -250,6 +250,20 @@ gl mr discussion 123 6f9a1c2d                        # full conversation of one 
 - Thread IDs are 40-character hex strings; lists show the 8-character prefix and every command accepts any unique prefix (ambiguous prefixes fail with the match count, exit 2). `gl-axi` rows are `id,author,state,notes,updated_at,preview` with `--fields type,file,line,created_at,id_full` extras; `gl` renders a table, `--output json` returns `{discussions, count, total, page, total_pages}` with full IDs.
 - `mr discussion <!iid|iid|current> <discussion-id>` prints one thread's full conversation — every note with its complete body, author, timestamps, and, for diff threads, the file and line the thread is anchored to.
 
+### Inspecting merge request diffs
+
+```sh
+gl mr diff 123                                      # compact changed-file summary
+gl mr diff current --fields old_path,new_ranges     # commentable ranges for each file
+gl mr diff 123 --file src/app.go                    # one changed file
+gl mr diff patch 123                                # raw unified patch
+gl mr diff export 123 --dir .gl-axi/mr-123          # review bundle on disk
+```
+
+- `mr diff <!iid|iid|current>` lists changed files with `path,status,additions,deletions,hunks`; `gl-axi` adds `--fields old_path,generated,collapsed,too_large,new_ranges,old_ranges`. Paging is client-side over the complete diff list, so `count: N of M total` is exact.
+- `mr diff patch` streams GitLab's raw unified diff directly to stdout. It is the escape hatch for humans and pipes; use the default summary or export bundle for token-frugal agent review.
+- `mr diff export` writes `manifest.toon`, `files.toon`, `patch.diff`, per-file diffs under `diffs/`, and old/new copies of changed files under `old/` and `new/`, pinned to the merge request diff refs. Existing non-empty directories are refused unless `--force` is passed.
+
 ### Commenting on merge requests
 
 ```sh

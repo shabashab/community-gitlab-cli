@@ -52,6 +52,9 @@ gl-axi mr update current --ready
 gl-axi mr discussions 123                          # unresolved review threads
 gl-axi mr discussions current --order-by updated_at --sort desc
 gl-axi mr discussion 123 6f9a1c2d                  # full conversation of one thread
+gl-axi mr diff 123                                 # changed-file summary
+gl-axi mr diff 123 --file src/app.go --fields new_ranges,old_ranges
+gl-axi mr diff export 123 --dir .gl-axi/mr-123     # filesystem review bundle
 gl-axi mr comment 123 --body "LGTM overall"        # new resolvable thread
 gl-axi mr comment 123 --file src/app.go --line 42 --body "typo"   # diff-line comment
 gl-axi mr comment 123 --draft --file src/app.go --line 10:15 --body-file -  # draft, range, stdin
@@ -91,6 +94,14 @@ gl-axi mr drafts publish 123 --all                 # publish the pending review
 - `mr discussion <iid> <id>` prints one thread with complete note bodies.
   `<id>` is the 8-char id from the list (any unique prefix works) or the full
   40-char ID.
+- `mr diff <iid>` lists changed files as
+  `path,status,additions,deletions,hunks`; `--fields` adds
+  `old_path,generated,collapsed,too_large,new_ranges,old_ranges`.
+  `--file <path>` accepts the old or new path and narrows to one file.
+  `mr diff patch <iid>` streams the raw unified diff. Prefer
+  `mr diff export <iid> --dir .gl-axi/mr-<iid>` for deep review: it writes
+  `manifest.toon`, `files.toon`, `patch.diff`, per-file diffs, and old/new
+  changed-file snapshots pinned to the MR diff refs.
 - `mr comment <iid> --body <text>` adds a review comment: a resolvable
   thread by default, `--note` for a plain non-resolvable note. `--file
   <path>` anchors to a changed file (alone = file-level comment); `--line

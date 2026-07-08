@@ -112,6 +112,8 @@ source branch is the currently checked out git branch.`,
 			switch action {
 			case "view", "info":
 				return runMRView(cmd, rootOpts, projOpts, viewOpts, iid)
+			case "diff", "changes":
+				return runMRDiff(cmd, rootOpts, projOpts, newMRDiffListOptions(), iid)
 			case "update":
 				return newUsageError(
 					fmt.Errorf("mr !%d update takes flags and runs as a subcommand", iid),
@@ -134,7 +136,7 @@ source branch is the currently checked out git branch.`,
 				)
 			default:
 				return newUsageError(fmt.Errorf(
-					"%w %q for merge request !%d: supported actions: view (alias: info), update (as `mr update !<iid>`), discussions (as `mr discussions !<iid>`), comment (as `mr comment !<iid>`), drafts (as `mr drafts !<iid>`)",
+					"%w %q for merge request !%d: supported actions: view (alias: info), diff, update (as `mr update !<iid>`), discussions (as `mr discussions !<iid>`), comment (as `mr comment !<iid>`), drafts (as `mr drafts !<iid>`)",
 					errUnknownMergeRequestAction,
 					action,
 					iid,
@@ -164,6 +166,7 @@ source branch is the currently checked out git branch.`,
 	cmd.AddCommand(newMRDiscussionCommand(rootOpts, projOpts))
 	cmd.AddCommand(newMRCommentCommand(rootOpts, projOpts))
 	cmd.AddCommand(newMRDraftsCommand(rootOpts, projOpts))
+	cmd.AddCommand(newMRDiffCommand(rootOpts, projOpts))
 
 	return cmd
 }

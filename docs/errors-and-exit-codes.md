@@ -43,16 +43,18 @@ Design rules:
 | ---- | ------- | ---- |
 | `usage_error` | invalid invocation not covered by a more specific code | 2 |
 | `invalid_merge_request_ref` | `mr` reference that is not `!<iid>` / `<iid>` / `current` | 2 |
-| `unknown_merge_request_action` | unsupported per-MR action (supported: `view` alias `info`, `update` as `mr update !<iid>`, `discussions` as `mr discussions !<iid>`) | 2 |
+| `unknown_merge_request_action` | unsupported per-MR action (supported: `view` alias `info`, `diff`, `update` as `mr update !<iid>`, `discussions` as `mr discussions !<iid>`) | 2 |
 | `no_update_flags` | `mr update` with no field flags — nothing to change | 2 |
 | `invalid_discussion_ref` | discussion reference that is not a 40-character hex ID or a prefix of one | 2 |
 | `ambiguous_discussion_ref` | discussion ID prefix matching more than one thread (match count in the message) | 2 |
 | `discussion_not_found` | discussion ID prefix matching no thread on the merge request (a full 40-character ID that does not exist surfaces as `gitlab_not_found` instead — the API answers that lookup) | 1 |
 | `invalid_draft_note_id` | `mr drafts publish`/`delete` draft-id argument that is not a positive integer | 2 |
-| `merge_request_diff_not_ready` | positioned `mr comment` while GitLab is still preparing the merge request diff (`diff_refs` empty — populates asynchronously after creation; retry shortly) | 1 |
-| `file_not_in_diff` | `mr comment --file` path matching no file changed by the merge request (hint lists changed paths) | 1 |
+| `merge_request_diff_not_ready` | diff-backed commands while GitLab is still preparing the merge request diff (`diff_refs` empty — populates asynchronously after creation; retry shortly) | 1 |
+| `file_not_in_diff` | `mr diff --file`/`mr comment --file` path matching no file changed by the merge request (hint lists changed paths) | 1 |
 | `line_not_in_diff` | `mr comment --line`/`--old-line` addressing a line that is not visible in the merge request diff on the requested side (hint lists the commentable ranges and suggests the other side when the line exists there) | 1 |
 | `diff_too_large` | positioned `mr comment` on a file whose diff GitLab returns collapsed/too large — line resolution is impossible; comment file-level instead | 1 |
+| `unsafe_export_path` | `mr diff export` encountered a repository path that would escape the bundle directory | 1 |
+| `export_dir_not_empty` | `mr diff export --dir` points at a non-empty existing path without `--force` | 2 |
 | `missing_gitlab_token` | no token from flag, env, or credential store | 1 |
 | `missing_gitlab_base_url` | `auth login` without explicit `--gitlab-base-url` | 1 |
 | `invalid_gitlab_token` | token verification failed during `auth login` | 1 |
