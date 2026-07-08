@@ -38,6 +38,7 @@ Outside a repository, pass `--project <id-or-path>` (numeric ID or
 ```sh
 gl-axi mr                             # open MRs, compact 4-column rows
 gl-axi mr 123                         # one MR (also: gl-axi mr '!123')
+gl-axi mr current                     # the MR of the checked-out branch
 gl-axi mr 123 --full                  # all fields + complete description
 gl-axi mr list --state all --author octocat
 gl-axi mr list --fields source_branch,updated_at   # add columns
@@ -47,6 +48,7 @@ gl-axi mr create --title "Fix auth" --description-file notes.md
 gl-axi mr create --title "Fix auth" --description-file - < notes.md
 gl-axi mr update 123 --title "Fix auth v2" --ready
 gl-axi mr update 123 --add-label bug --assignee mona
+gl-axi mr update current --ready
 ```
 
 - List rows default to `iid,title,state,author`; `--fields` adds
@@ -65,6 +67,11 @@ gl-axi mr update 123 --add-label bug --assignee mona
   prefix; `--label` replaces all labels while `--add-label`/`--remove-label`
   adjust incrementally; explicitly empty values clear (`--description ""`,
   `--assignee ""`, `--milestone-id 0`). No flags at all is a usage error.
+- The ref `current` (view and update) resolves via the current git branch to
+  its open MR. Open MRs only; zero or multiple matches fail loud (exit 1,
+  codes `no_current_merge_request` / `ambiguous_current_merge_request` with
+  candidates listed), as does an unresolvable branch
+  (`missing_current_branch`).
 
 ## Auth
 
