@@ -155,7 +155,7 @@ func classifyError(err error, bin string) (code, message string, help []string) 
 		}
 	case errors.Is(err, errUnknownMergeRequestAction):
 		return "unknown_merge_request_action", message, []string{
-			fmt.Sprintf("Supported actions: view (alias: info) — run `%s mr --help` for usage", bin),
+			fmt.Sprintf("Supported actions: view (alias: info), update — run `%s mr --help` for usage", bin),
 		}
 	case errors.Is(err, errUserNotFound):
 		return "user_not_found", message, []string{
@@ -168,6 +168,10 @@ func classifyError(err error, bin string) (code, message string, help []string) 
 	case errors.Is(err, errMissingTargetBranch):
 		return "missing_target_branch", message, []string{
 			"Pass --target-branch <branch> explicitly",
+		}
+	case errors.Is(err, errNoUpdateFlags):
+		return "no_update_flags", message, []string{
+			fmt.Sprintf("Pass at least one field flag — run `%s mr update --help` for the list", bin),
 		}
 	}
 

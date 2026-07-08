@@ -94,9 +94,14 @@ and zsh, quote the bang form ('!123') to avoid shell history expansion.`,
 			switch action {
 			case "view", "info":
 				return runMRView(cmd, rootOpts, projOpts, viewOpts, iid)
+			case "update":
+				return newUsageError(
+					fmt.Errorf("mr !%d update takes flags and runs as a subcommand", iid),
+					fmt.Sprintf("Run `mr update !%d --<flag> <value>` — see `mr update --help` for the flag list", iid),
+				)
 			default:
 				return newUsageError(fmt.Errorf(
-					"%w %q for merge request !%d: supported actions: view (alias: info)",
+					"%w %q for merge request !%d: supported actions: view (alias: info), update (as `mr update !<iid>`)",
 					errUnknownMergeRequestAction,
 					action,
 					iid,
@@ -121,6 +126,7 @@ and zsh, quote the bang form ('!123') to avoid shell history expansion.`,
 	cmd.AddCommand(newMRListCommand(rootOpts, projOpts))
 	cmd.AddCommand(newMRViewCommand(rootOpts, projOpts))
 	cmd.AddCommand(newMRCreateCommand(rootOpts, projOpts))
+	cmd.AddCommand(newMRUpdateCommand(rootOpts, projOpts))
 
 	return cmd
 }

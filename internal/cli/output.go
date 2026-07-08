@@ -623,10 +623,10 @@ func writeMergeRequest(w io.Writer, format string, mode commandMode, mergeReques
 	return writeMergeRequestText(w, out, full)
 }
 
-// writeMergeRequestCreated renders a freshly created merge request. It reuses
-// the view's merge_request shape so agents parse one schema, but unlike the
-// self-contained view a create has a genuine next step, so the axi variant
-// always suggests checking merge status.
+// writeMergeRequestCreated renders a freshly created or updated merge
+// request. It reuses the view's merge_request shape so agents parse one
+// schema, but unlike the self-contained view a mutation has a genuine next
+// step, so the axi variant always suggests checking merge status.
 func writeMergeRequestCreated(w io.Writer, format string, mode commandMode, mergeRequest *gitlab.MergeRequest, hints *mrHintContext) error {
 	if mode != commandModeAxi {
 		return writeMergeRequest(w, format, mode, mergeRequest, false, hints)

@@ -81,6 +81,18 @@ help[1]: Run `mr view 42` to check merge status and pipeline results
 - `--label` (repeatable), `--milestone-id`, `--target-project-id` (cross-fork), `--remove-source-branch`, `--squash`, and `--allow-collaboration` map directly to the API; the booleans are sent only when explicitly passed.
 - If the description exceeds the truncation limit, the output truncates it as usual and adds the `mr view <iid> --full` escape-hatch hint.
 
+## Merge request update
+
+`gl-axi mr update <!iid|iid> --<flag> <value>` updates an existing merge request and returns the same compact `merge_request:` object plus the `mr view <iid>` next-step hint as create.
+
+- **A field is sent iff its flag was passed.** Unset fields keep their current values on GitLab; there are no implicit defaults. Calling `mr update` with no field flags at all is a usage error (`no_update_flags`, exit 2) — nothing was requested.
+- Explicitly empty values clear: `--description ""` clears the description, `--assignee ""` unassigns everyone, `--reviewer ""` removes all reviewers, `--label ""` removes all labels, `--milestone-id 0` unassigns the milestone. `--title ""` and `--target-branch ""` are usage errors — those fields cannot be cleared.
+- Labels come in two modes: `--label` replaces the full set; `--add-label`/`--remove-label` adjust it incrementally and may combine. `--label` together with either incremental flag is a usage error.
+- `--draft` and `--ready` (mutually exclusive) rewrite the title client-side: `--draft` prepends `Draft:`, `--ready` strips a leading `Draft:` prefix (case-insensitive). When `--title` is not passed alongside, the current title is fetched first so the prefix change applies to what is actually on the merge request. Applying an already-satisfied state (`--ready` on a non-draft) still succeeds with exit 0.
+- Booleans (`--squash`, `--remove-source-branch`, `--allow-collaboration`, `--discussion-locked`) are sent only when passed; `--squash=false` sends an explicit `false`.
+- Description is dual-input per the content-flags convention: `--description <text>` inline, or `--description-file <path>` (`-` reads stdin).
+- The source branch and cross-fork target project cannot be changed after creation; the update API has no such fields.
+
 ## Auth and project outputs
 
 - `auth login` → `login:` object plus hints for the next step.

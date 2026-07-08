@@ -43,7 +43,8 @@ Design rules:
 | ---- | ------- | ---- |
 | `usage_error` | invalid invocation not covered by a more specific code | 2 |
 | `invalid_merge_request_ref` | `mr` reference that is not `!<iid>` / `<iid>` | 2 |
-| `unknown_merge_request_action` | unsupported per-MR action (supported: `view`, alias `info`) | 2 |
+| `unknown_merge_request_action` | unsupported per-MR action (supported: `view` alias `info`, `update` as `mr update !<iid>`) | 2 |
+| `no_update_flags` | `mr update` with no field flags — nothing to change | 2 |
 | `missing_gitlab_token` | no token from flag, env, or credential store | 1 |
 | `missing_gitlab_base_url` | `auth login` without explicit `--gitlab-base-url` | 1 |
 | `invalid_gitlab_token` | token verification failed during `auth login` | 1 |

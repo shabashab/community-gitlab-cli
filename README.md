@@ -216,6 +216,22 @@ git log -1 --format=%b | gl mr create --title "From commit" --description-file -
 - Remaining creation parameters map directly to the API: `--label` (repeatable), `--milestone-id`, `--target-project-id` for cross-fork merge requests, `--remove-source-branch`, `--squash`, `--allow-collaboration`. Boolean flags are sent only when explicitly passed.
 - A 409 from GitLab (an open merge request already exists for the branch pair) fails with `gitlab_conflict` and a hint to inspect the existing one.
 
+### Updating merge requests
+
+```sh
+gl mr update 123 --title "Rework search endpoint" --ready
+gl mr update '!123' --add-label backend --remove-label triage --assignee mona
+gl mr update 123 --description ""              # clear the description
+gl mr update 123 --squash=false                # explicitly disable squash
+```
+
+- A field is sent to GitLab only when its flag is passed — unset fields keep their current values. Running `mr update` with no field flags is a usage error (exit 2), not a silent no-op.
+- Explicitly empty values clear: `--description ""`, `--assignee ""`, `--reviewer ""`, `--label ""`, and `--milestone-id 0` clear their fields. `--title` and `--target-branch` cannot be cleared; empty values are usage errors.
+- `--label` replaces the full label set; `--add-label`/`--remove-label` adjust it incrementally and may combine. Mixing `--label` with the incremental flags is a usage error.
+- `--draft` and `--ready` (mutually exclusive) toggle the `Draft:` title prefix. Without `--title`, the current title is fetched first so the prefix change applies to the real title. Marking an already-ready merge request `--ready` succeeds (exit 0).
+- Boolean flags (`--squash`, `--remove-source-branch`, `--allow-collaboration`, `--discussion-locked`) are sent only when explicitly passed; the `=false` form sends an explicit disable.
+- The source branch and cross-fork target project cannot be changed after creation.
+
 ## Agent Session Integrations (gl-axi)
 
 `gl-axi setup hooks` installs SessionStart integrations so agent sessions start with ambient GitLab context — the open merge requests of the repository the session starts in:

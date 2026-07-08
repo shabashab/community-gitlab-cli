@@ -45,6 +45,8 @@ gl-axi mr list --search "auth" --label bug --page 2
 gl-axi mr create --title "Fix auth"                # source = current branch, target = default branch
 gl-axi mr create --title "Fix auth" --description-file notes.md
 gl-axi mr create --title "Fix auth" --description-file - < notes.md
+gl-axi mr update 123 --title "Fix auth v2" --ready
+gl-axi mr update 123 --add-label bug --assignee mona
 ```
 
 - List rows default to `iid,title,state,author`; `--fields` adds
@@ -58,6 +60,11 @@ gl-axi mr create --title "Fix auth" --description-file - < notes.md
   `--assignee`/`--reviewer` take a username or numeric user ID (repeatable);
   `--draft`, `--label`, `--milestone-id`, `--squash`,
   `--remove-source-branch` cover the remaining basics.
+- `mr update <iid>` sends only the fields whose flags you pass; everything
+  else keeps its current value. `--draft`/`--ready` toggle the `Draft:` title
+  prefix; `--label` replaces all labels while `--add-label`/`--remove-label`
+  adjust incrementally; explicitly empty values clear (`--description ""`,
+  `--assignee ""`, `--milestone-id 0`). No flags at all is a usage error.
 
 ## Auth
 
