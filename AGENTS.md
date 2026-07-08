@@ -144,6 +144,17 @@ task run-axi -- --help
 task run-axi -- <subcommand> <args>
 ```
 
+## Git Worktree Workflow For Agents
+
+Use repository-local worktrees when you need an isolated checkout for parallel agent work, release checks, or branch comparisons.
+
+- Create worktrees under `.worktrees/<name>` from the repository root. Do not create sibling repository directories or worktrees outside the repo unless the user explicitly asks.
+- Use short, descriptive names that match the branch or task, for example `.worktrees/mr-drafts-fix`.
+- For a new branch, run `git worktree add .worktrees/<name> -b <branch> <base-ref>`. For an existing branch, run `git worktree add .worktrees/<name> <branch>`.
+- Run commands from inside the worktree when testing that branch: `cd .worktrees/<name>` and then use the normal `task build`, `task test`, or CLI commands.
+- Keep `.worktrees/` ignored. Never commit files from inside `.worktrees/`; commit only the intended source changes from the worktree's own Git checkout.
+- Remove a worktree after it is no longer needed with `git worktree remove .worktrees/<name>`, then prune stale metadata with `git worktree prune` if Git reports leftover records.
+
 ## GitLab Client-Go Workflow For Agents
 
 All GitLab communication should go through `internal/gitlabclient`, which creates the official `gitlab.com/gitlab-org/api/client-go/v2` client. Do not add parallel hand-written REST callers unless there is a documented client-go gap.
