@@ -67,18 +67,19 @@ func newMRDiscussionsCommand(rootOpts *rootOptions, projOpts *projectOptions) *c
 	var fieldsFlag string
 
 	cmd := &cobra.Command{
-		Use:   "discussions <!iid|iid>",
+		Use:   "discussions <!iid|iid|current>",
 		Short: "List discussion threads on a merge request",
 		Long: `List discussion threads on a merge request in the current project.
 
 The GitLab discussions API has no server-side filters, so filtering, sorting,
 and paging happen client-side over the complete thread list; totals are always
 exact. By default only unresolved threads are shown and system-generated
-activity is hidden. In bash and zsh, quote the bang form ('!123') to avoid
-shell history expansion.`,
+activity is hidden. The literal reference "current" resolves to the open merge
+request of the currently checked out git branch. In bash and zsh, quote the
+bang form ('!123') to avoid shell history expansion.`,
 		Args: wrapArgsValidator(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			iid, err := parseMergeRequestRef(args[0])
+			iid, err := resolveMergeRequestRef(cmd, rootOpts, projOpts, args[0])
 			if err != nil {
 				return err
 			}
@@ -117,16 +118,17 @@ shell history expansion.`,
 
 func newMRDiscussionCommand(rootOpts *rootOptions, projOpts *projectOptions) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "discussion <!iid|iid> <discussion-id>",
+		Use:   "discussion <!iid|iid|current> <discussion-id>",
 		Short: "Show the full conversation of one discussion thread",
 		Long: `Show every note of one discussion thread on a merge request, with
 complete bodies.
 
 <discussion-id> is the full 40-character hex ID or any unique prefix of one,
-as shown by "mr discussions".`,
+as shown by "mr discussions". The literal reference "current" resolves to the
+open merge request of the currently checked out git branch.`,
 		Args: wrapArgsValidator(cobra.ExactArgs(2)),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			iid, err := parseMergeRequestRef(args[0])
+			iid, err := resolveMergeRequestRef(cmd, rootOpts, projOpts, args[0])
 			if err != nil {
 				return err
 			}

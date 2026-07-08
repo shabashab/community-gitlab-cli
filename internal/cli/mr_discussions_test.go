@@ -712,6 +712,56 @@ func TestWriteDiscussionListStandardModes(t *testing.T) {
 	})
 }
 
+func TestMRDiscussionsCurrentRef(t *testing.T) {
+	newServer := func(t *testing.T) *httptest.Server {
+		t.Helper()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.EscapedPath() {
+			case "/api/v4/projects/group%2Fproject/merge_requests":
+				if got := r.URL.Query().Get("source_branch"); got != "feature/search" {
+					t.Errorf("expected current-branch lookup, got source_branch=%q", got)
+				}
+				fmt.Fprint(w, "["+mergeRequestJSON(123, "short description")+"]")
+			case discussionsListPath:
+				fmt.Fprint(w, discussionListStubJSON())
+			default:
+				t.Errorf("unexpected request path %s", r.URL.EscapedPath())
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		t.Cleanup(server.Close)
+
+		return server
+	}
+
+	t.Run("discussions current lists threads of the resolved mr", func(t *testing.T) {
+		stubCurrentBranch(t, "feature/search", nil)
+		server := newServer(t)
+
+		got, err := executeDiscussionCommand(t, commandModeAxi, server.URL, "mr", "discussions", "current")
+		if err != nil {
+			t.Fatalf("Execute returned error: %v", err)
+		}
+		if !strings.Contains(got, "discussions[2]{") || !strings.Contains(got, "count: 2 of 2 total") {
+			t.Errorf("expected the resolved merge request's threads, got:\n%s", got)
+		}
+	})
+
+	t.Run("discussion current resolves a thread prefix", func(t *testing.T) {
+		stubCurrentBranch(t, "feature/search", nil)
+		server := newServer(t)
+
+		got, err := executeDiscussionCommand(t, commandModeAxi, server.URL, "mr", "discussion", "current", "6f9a")
+		if err != nil {
+			t.Fatalf("Execute returned error: %v", err)
+		}
+		if !strings.Contains(got, "id: "+discussionIDUnresolvedAlice) {
+			t.Errorf("expected the thread of the resolved merge request, got:\n%s", got)
+		}
+	})
+}
+
 func TestMRParentDispatchDiscussionsRedirects(t *testing.T) {
 	_, err := executeDiscussionCommand(t, commandModeAxi, "http://127.0.0.1:1", "mr", "123", "discussions")
 	if err == nil {
