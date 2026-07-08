@@ -117,9 +117,14 @@ source branch is the currently checked out git branch.`,
 					fmt.Errorf("mr !%d update takes flags and runs as a subcommand", iid),
 					fmt.Sprintf("Run `mr update !%d --<flag> <value>` — see `mr update --help` for the flag list", iid),
 				)
+			case "discussions", "discussion", "threads":
+				return newUsageError(
+					fmt.Errorf("mr !%d %s runs as a subcommand", iid, action),
+					fmt.Sprintf("Run `mr discussions !%d` to list threads, or `mr discussion !%d <id>` for one thread", iid, iid),
+				)
 			default:
 				return newUsageError(fmt.Errorf(
-					"%w %q for merge request !%d: supported actions: view (alias: info), update (as `mr update !<iid>`)",
+					"%w %q for merge request !%d: supported actions: view (alias: info), update (as `mr update !<iid>`), discussions (as `mr discussions !<iid>`)",
 					errUnknownMergeRequestAction,
 					action,
 					iid,
@@ -145,6 +150,8 @@ source branch is the currently checked out git branch.`,
 	cmd.AddCommand(newMRViewCommand(rootOpts, projOpts))
 	cmd.AddCommand(newMRCreateCommand(rootOpts, projOpts))
 	cmd.AddCommand(newMRUpdateCommand(rootOpts, projOpts))
+	cmd.AddCommand(newMRDiscussionsCommand(rootOpts, projOpts))
+	cmd.AddCommand(newMRDiscussionCommand(rootOpts, projOpts))
 
 	return cmd
 }
@@ -197,6 +204,13 @@ func newMRListCommand(rootOpts *rootOptions, projOpts *projectOptions) *cobra.Co
 // parseMRListFields validates a --fields value and returns the extra columns
 // in canonical order. Unknown names fail loud with the valid set inline.
 func parseMRListFields(value string) ([]string, error) {
+	return parseExtraFields(value, mrListExtraFields, mrListDefaultFields)
+}
+
+// parseExtraFields validates a --fields value against a command's extra and
+// default column sets and returns the extras in canonical order. Unknown
+// names fail loud with the valid set inline.
+func parseExtraFields(value string, extraFields, defaultFields []string) ([]string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return nil, nil
@@ -210,13 +224,13 @@ func parseMRListFields(value string) ([]string, error) {
 		}
 
 		known := false
-		for _, extra := range mrListExtraFields {
+		for _, extra := range extraFields {
 			if name == extra {
 				known = true
 				break
 			}
 		}
-		for _, def := range mrListDefaultFields {
+		for _, def := range defaultFields {
 			if name == def {
 				known = true // defaults are always emitted; requesting them is a no-op
 				break
@@ -227,8 +241,8 @@ func parseMRListFields(value string) ([]string, error) {
 				fmt.Errorf("unknown field %q for --fields", name),
 				fmt.Sprintf(
 					"Valid --fields values: %s (defaults always included: %s)",
-					strings.Join(mrListExtraFields, ", "),
-					strings.Join(mrListDefaultFields, ", "),
+					strings.Join(extraFields, ", "),
+					strings.Join(defaultFields, ", "),
 				),
 			)
 		}
@@ -237,7 +251,7 @@ func parseMRListFields(value string) ([]string, error) {
 	}
 
 	var fields []string
-	for _, extra := range mrListExtraFields {
+	for _, extra := range extraFields {
 		if requested[extra] {
 			fields = append(fields, extra)
 		}

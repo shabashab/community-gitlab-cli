@@ -43,8 +43,11 @@ Design rules:
 | ---- | ------- | ---- |
 | `usage_error` | invalid invocation not covered by a more specific code | 2 |
 | `invalid_merge_request_ref` | `mr` reference that is not `!<iid>` / `<iid>` / `current` | 2 |
-| `unknown_merge_request_action` | unsupported per-MR action (supported: `view` alias `info`, `update` as `mr update !<iid>`) | 2 |
+| `unknown_merge_request_action` | unsupported per-MR action (supported: `view` alias `info`, `update` as `mr update !<iid>`, `discussions` as `mr discussions !<iid>`) | 2 |
 | `no_update_flags` | `mr update` with no field flags — nothing to change | 2 |
+| `invalid_discussion_ref` | discussion reference that is not a 40-character hex ID or a prefix of one | 2 |
+| `ambiguous_discussion_ref` | discussion ID prefix matching more than one thread (match count in the message) | 2 |
+| `discussion_not_found` | discussion ID prefix matching no thread on the merge request (a full 40-character ID that does not exist surfaces as `gitlab_not_found` instead — the API answers that lookup) | 1 |
 | `missing_gitlab_token` | no token from flag, env, or credential store | 1 |
 | `missing_gitlab_base_url` | `auth login` without explicit `--gitlab-base-url` | 1 |
 | `invalid_gitlab_token` | token verification failed during `auth login` | 1 |

@@ -59,3 +59,45 @@ func renderMergeRequestTable(w io.Writer, rows []mergeRequestRowOutput, paging m
 	)
 	return err
 }
+
+func renderDiscussionTable(w io.Writer, rows []discussionRowOutput, paging mrListPaging) error {
+	if len(rows) == 0 {
+		_, err := fmt.Fprintln(w, "No discussion threads found. Try --state all, --system, or relax other filters.")
+		return err
+	}
+
+	tw := table.NewWriter()
+	tw.SetOutputMirror(w)
+	tw.SetStyle(table.StyleRounded)
+	tw.SetColumnConfigs([]table.ColumnConfig{
+		{Name: "PREVIEW", WidthMax: 60},
+	})
+	tw.AppendHeader(table.Row{"ID", "AUTHOR", "STATE", "NOTES", "UPDATED", "PREVIEW"})
+
+	for _, row := range rows {
+		updated := row.UpdatedAt
+		if len(updated) >= 10 {
+			updated = updated[:10]
+		}
+		tw.AppendRow(table.Row{
+			shortDiscussionID(row.ID),
+			row.Author,
+			row.State,
+			row.Notes,
+			updated,
+			row.Preview,
+		})
+	}
+
+	tw.Render()
+
+	_, err := fmt.Fprintf(
+		w,
+		"\n%d of %d discussions (page %d of %d)\n",
+		len(rows),
+		paging.totalItems,
+		paging.page,
+		paging.totalPages,
+	)
+	return err
+}

@@ -958,6 +958,364 @@ func truncateDescription(value string, limit int, mode commandMode) (string, boo
 	), true
 }
 
+// axiDiscussionRow is the compact axi discussion list row. Optional fields
+// are pointers with omitempty so --fields controls exactly which columns are
+// emitted while every row stays uniform (required for TOON tabular output).
+type axiDiscussionRow struct {
+	ID        string  `json:"id" toon:"id"`
+	Author    string  `json:"author" toon:"author"`
+	State     string  `json:"state" toon:"state"`
+	Notes     int     `json:"notes" toon:"notes"`
+	UpdatedAt string  `json:"updated_at" toon:"updated_at"`
+	Preview   string  `json:"preview" toon:"preview"`
+	Type      *string `json:"type,omitempty" toon:"type,omitempty"`
+	File      *string `json:"file,omitempty" toon:"file,omitempty"`
+	Line      *int64  `json:"line,omitempty" toon:"line,omitempty"`
+	CreatedAt *string `json:"created_at,omitempty" toon:"created_at,omitempty"`
+	IDFull    *string `json:"id_full,omitempty" toon:"id_full,omitempty"`
+}
+
+type axiDiscussionListOutput struct {
+	Discussions []axiDiscussionRow `json:"discussions" toon:"discussions"`
+	Count       string             `json:"count" toon:"count"`
+	Total       int64              `json:"total" toon:"-"`
+	Page        int64              `json:"page" toon:"-"`
+	TotalPages  int64              `json:"total_pages" toon:"-"`
+	Help        []string           `json:"help,omitempty" toon:"help,omitempty"`
+}
+
+// discussionRowOutput is the standard-mode row (gl json and table source);
+// the id is the full 40-character discussion ID.
+type discussionRowOutput struct {
+	ID         string `json:"id"`
+	Author     string `json:"author"`
+	State      string `json:"state"`
+	Resolvable bool   `json:"resolvable"`
+	Notes      int    `json:"notes"`
+	Type       string `json:"type"`
+	File       string `json:"file,omitempty"`
+	Line       int64  `json:"line,omitempty"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
+	Preview    string `json:"preview"`
+}
+
+type discussionListOutput struct {
+	Discussions []discussionRowOutput `json:"discussions"`
+	Count       int                   `json:"count"`
+	Total       int64                 `json:"total"`
+	Page        int64                 `json:"page"`
+	TotalPages  int64                 `json:"total_pages"`
+}
+
+type discussionDetailOutput struct {
+	ID         string `json:"id" toon:"id"`
+	State      string `json:"state" toon:"state"`
+	Resolvable bool   `json:"resolvable" toon:"resolvable"`
+	File       string `json:"file,omitempty" toon:"file,omitempty"`
+	Line       int64  `json:"line,omitempty" toon:"line,omitempty"`
+	ResolvedBy string `json:"resolved_by,omitempty" toon:"resolved_by,omitempty"`
+	ResolvedAt string `json:"resolved_at,omitempty" toon:"resolved_at,omitempty"`
+	UpdatedAt  string `json:"updated_at" toon:"updated_at"`
+	Notes      int    `json:"notes" toon:"notes"`
+}
+
+// discussionNoteOutput fields are all non-optional so notes[] stays a uniform
+// TOON tabular array. The body is complete — showing full conversations is
+// the thread view's purpose.
+type discussionNoteOutput struct {
+	ID        int64  `json:"id" toon:"id"`
+	Author    string `json:"author" toon:"author"`
+	CreatedAt string `json:"created_at" toon:"created_at"`
+	UpdatedAt string `json:"updated_at" toon:"updated_at"`
+	System    bool   `json:"system" toon:"system"`
+	Body      string `json:"body" toon:"body"`
+}
+
+// discussionViewOutput carries no help field: a thread view is self-contained
+// (axi guide §9).
+type discussionViewOutput struct {
+	Discussion discussionDetailOutput `json:"discussion" toon:"discussion"`
+	Notes      []discussionNoteOutput `json:"notes" toon:"notes"`
+}
+
+// discussionHintContext extends the project-suffix carrying with the filter
+// flags of the current invocation, so paging hints re-emit every non-default
+// flag and stay runnable as-is (axi guide §9).
+type discussionHintContext struct {
+	mrHintContext
+	iid            int64
+	state          string
+	author         string
+	system         bool
+	orderBy        string
+	sortDir        string
+	excludedSystem int
+}
+
+func (c *discussionHintContext) filterSuffix() string {
+	if c == nil {
+		return ""
+	}
+
+	var parts []string
+	if c.state != defaultDiscussionStateFilter {
+		parts = append(parts, "--state "+c.state)
+	}
+	if strings.TrimSpace(c.author) != "" {
+		parts = append(parts, "--author "+strings.TrimSpace(c.author))
+	}
+	if c.system {
+		parts = append(parts, "--system")
+	}
+	if c.orderBy != "" && c.orderBy != defaultDiscussionOrderBy {
+		parts = append(parts, "--order-by "+c.orderBy)
+	}
+	if c.sortDir != "" && c.sortDir != defaultDiscussionSortDirection {
+		parts = append(parts, "--sort "+c.sortDir)
+	}
+	if c.limit != defaultMergeRequestListLimit {
+		parts = append(parts, fmt.Sprintf("--limit %d", c.limit))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+
+	return " " + strings.Join(parts, " ")
+}
+
+func writeDiscussionList(w io.Writer, format string, mode commandMode, summaries []discussionSummary, paging mrListPaging, fields []string, hints *discussionHintContext) error {
+	if mode == commandModeAxi {
+		rows := make([]axiDiscussionRow, 0, len(summaries))
+		for _, summary := range summaries {
+			rows = append(rows, axiDiscussionRowFor(summary, fields))
+		}
+
+		return writeAxi(w, format, axiDiscussionListOutput{
+			Discussions: rows,
+			Count:       mrListCountLine(len(rows), paging),
+			Total:       paging.totalItems,
+			Page:        paging.page,
+			TotalPages:  paging.totalPages,
+			Help:        discussionListHelp(len(rows), paging, hints),
+		})
+	}
+
+	format, err := normalizeOutputFormat(format, mode)
+	if err != nil {
+		return err
+	}
+
+	rows := make([]discussionRowOutput, 0, len(summaries))
+	for _, summary := range summaries {
+		rows = append(rows, discussionSummaryToRow(summary))
+	}
+
+	if format == "json" {
+		return writeJSON(w, discussionListOutput{
+			Discussions: rows,
+			Count:       len(rows),
+			Total:       paging.totalItems,
+			Page:        paging.page,
+			TotalPages:  paging.totalPages,
+		})
+	}
+
+	return renderDiscussionTable(w, rows, paging)
+}
+
+func discussionSummaryToRow(summary discussionSummary) discussionRowOutput {
+	return discussionRowOutput{
+		ID:         summary.id,
+		Author:     summary.author,
+		State:      summary.state,
+		Resolvable: summary.resolvable,
+		Notes:      summary.notesCount,
+		Type:       summary.noteType,
+		File:       summary.file,
+		Line:       summary.line,
+		CreatedAt:  formatLocalTime(summary.createdAt),
+		UpdatedAt:  formatLocalTime(summary.updatedAt),
+		Preview:    summary.preview,
+	}
+}
+
+func axiDiscussionRowFor(summary discussionSummary, fields []string) axiDiscussionRow {
+	full := discussionSummaryToRow(summary)
+	row := axiDiscussionRow{
+		ID:        shortDiscussionID(full.ID),
+		Author:    full.Author,
+		State:     full.State,
+		Notes:     full.Notes,
+		UpdatedAt: full.UpdatedAt,
+		Preview:   full.Preview,
+	}
+
+	for _, field := range fields {
+		switch field {
+		case "type":
+			row.Type = &full.Type
+		case "file":
+			row.File = &full.File
+		case "line":
+			row.Line = &full.Line
+		case "created_at":
+			row.CreatedAt = &full.CreatedAt
+		case "id_full":
+			row.IDFull = &full.ID
+		}
+	}
+
+	return row
+}
+
+func discussionListHelp(count int, paging mrListPaging, hints *discussionHintContext) []string {
+	suffix := hints.filterSuffix() + hints.projectSuffix()
+
+	if count == 0 {
+		if paging.totalItems > 0 {
+			return []string{fmt.Sprintf(
+				"Page %d is past the end (%d matching threads, %d pages) — run `mr discussions %d --page 1%s`",
+				paging.page,
+				paging.totalItems,
+				paging.totalPages,
+				hints.iid,
+				suffix,
+			)}
+		}
+
+		help := []string{fmt.Sprintf(
+			"No discussion threads matched — run `mr discussions %d --state all%s`, drop --author, or pass --system to include system activity",
+			hints.iid,
+			hints.projectSuffix(),
+		)}
+		if hints.excludedSystem > 0 {
+			help = append(help, fmt.Sprintf(
+				"%d system discussion(s) were excluded — pass --system to include them",
+				hints.excludedSystem,
+			))
+		}
+
+		return help
+	}
+
+	help := []string{fmt.Sprintf(
+		"Run `%s %d <id>%s` for the full conversation",
+		mrDiscussionViewCommandName,
+		hints.iid,
+		hints.projectSuffix(),
+	)}
+	if paging.totalPages > paging.page {
+		help = append(help, fmt.Sprintf(
+			"Run `mr discussions %d --page %d%s` for the next page",
+			hints.iid,
+			paging.page+1,
+			suffix,
+		))
+	}
+
+	return help
+}
+
+func writeDiscussion(w io.Writer, format string, mode commandMode, discussion *gitlab.Discussion) error {
+	if discussion == nil {
+		return errors.New("gitlab api returned an empty discussion response")
+	}
+
+	notes := make([]discussionNoteOutput, 0, len(discussion.Notes))
+	for _, note := range discussion.Notes {
+		if note == nil {
+			continue
+		}
+		notes = append(notes, discussionNoteOutput{
+			ID:        note.ID,
+			Author:    note.Author.Username,
+			CreatedAt: formatTimeValue(note.CreatedAt),
+			UpdatedAt: formatTimeValue(note.UpdatedAt),
+			System:    note.System,
+			Body:      note.Body,
+		})
+	}
+
+	detail := discussionDetailOutput{
+		ID:    strings.ToLower(discussion.ID),
+		State: "none",
+		Notes: len(notes),
+	}
+	if summary, ok := summarizeDiscussion(discussion); ok {
+		detail.State = summary.state
+		detail.Resolvable = summary.resolvable
+		detail.File = summary.file
+		detail.Line = summary.line
+		detail.UpdatedAt = formatLocalTime(summary.updatedAt)
+		if summary.resolved {
+			detail.ResolvedBy = summary.resolvedBy
+			detail.ResolvedAt = formatTimeValue(summary.resolvedAt)
+		}
+	}
+
+	out := discussionViewOutput{Discussion: detail, Notes: notes}
+
+	if mode == commandModeAxi {
+		return writeAxi(w, format, out)
+	}
+
+	format, err := normalizeOutputFormat(format, mode)
+	if err != nil {
+		return err
+	}
+
+	if format == "json" {
+		return writeJSON(w, out)
+	}
+
+	return writeDiscussionText(w, out)
+}
+
+func writeDiscussionText(w io.Writer, out discussionViewOutput) error {
+	if _, err := fmt.Fprintf(w, "discussion: %s\nstate: %s\n", out.Discussion.ID, out.Discussion.State); err != nil {
+		return err
+	}
+	if out.Discussion.File != "" {
+		if _, err := fmt.Fprintf(w, "file: %s:%d\n", out.Discussion.File, out.Discussion.Line); err != nil {
+			return err
+		}
+	}
+	if out.Discussion.ResolvedBy != "" || out.Discussion.ResolvedAt != "" {
+		if _, err := fmt.Fprintf(w, "resolved_by: %s\nresolved_at: %s\n", out.Discussion.ResolvedBy, out.Discussion.ResolvedAt); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintf(w, "updated_at: %s\nnotes: %d\n", out.Discussion.UpdatedAt, out.Discussion.Notes); err != nil {
+		return err
+	}
+
+	for i, note := range out.Notes {
+		header := fmt.Sprintf("[%d] %s — %s", i+1, note.Author, note.CreatedAt)
+		if note.UpdatedAt != "" && note.UpdatedAt != note.CreatedAt {
+			header += fmt.Sprintf(" (edited %s)", note.UpdatedAt)
+		}
+		if note.System {
+			header += " [system]"
+		}
+		if _, err := fmt.Fprintf(w, "\n%s\n%s\n", header, note.Body); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// formatLocalTime renders a locally computed time value, treating the zero
+// time as absent (unlike formatTimeValue it takes a value, not a pointer).
+func formatLocalTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+
+	return t.Format("2006-01-02T15:04:05Z07:00")
+}
+
 // writeCommandError renders a failed command. In axi mode the error is
 // structured output on the same channel and format as normal results so the
 // agent can parse and act on it.
