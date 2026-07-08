@@ -122,9 +122,19 @@ source branch is the currently checked out git branch.`,
 					fmt.Errorf("mr !%d %s runs as a subcommand", iid, action),
 					fmt.Sprintf("Run `mr discussions !%d` to list threads, or `mr discussion !%d <id>` for one thread", iid, iid),
 				)
+			case "comment":
+				return newUsageError(
+					fmt.Errorf("mr !%d comment takes flags and runs as a subcommand", iid),
+					fmt.Sprintf("Run `mr comment !%d --body <text>` — see `mr comment --help` for position and draft flags", iid),
+				)
+			case "drafts", "draft":
+				return newUsageError(
+					fmt.Errorf("mr !%d %s runs as a subcommand", iid, action),
+					fmt.Sprintf("Run `mr drafts !%d` to list pending draft notes, or `mr drafts publish !%d --all` to publish them", iid, iid),
+				)
 			default:
 				return newUsageError(fmt.Errorf(
-					"%w %q for merge request !%d: supported actions: view (alias: info), update (as `mr update !<iid>`), discussions (as `mr discussions !<iid>`)",
+					"%w %q for merge request !%d: supported actions: view (alias: info), update (as `mr update !<iid>`), discussions (as `mr discussions !<iid>`), comment (as `mr comment !<iid>`), drafts (as `mr drafts !<iid>`)",
 					errUnknownMergeRequestAction,
 					action,
 					iid,
@@ -152,6 +162,8 @@ source branch is the currently checked out git branch.`,
 	cmd.AddCommand(newMRUpdateCommand(rootOpts, projOpts))
 	cmd.AddCommand(newMRDiscussionsCommand(rootOpts, projOpts))
 	cmd.AddCommand(newMRDiscussionCommand(rootOpts, projOpts))
+	cmd.AddCommand(newMRCommentCommand(rootOpts, projOpts))
+	cmd.AddCommand(newMRDraftsCommand(rootOpts, projOpts))
 
 	return cmd
 }

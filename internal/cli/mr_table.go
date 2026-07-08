@@ -60,6 +60,47 @@ func renderMergeRequestTable(w io.Writer, rows []mergeRequestRowOutput, paging m
 	return err
 }
 
+func renderDraftNoteTable(w io.Writer, rows []draftNoteOutput, paging mrListPaging) error {
+	if len(rows) == 0 {
+		_, err := fmt.Fprintln(w, "No pending draft notes. Create one with `mr comment <iid> --draft --body <text>`.")
+		return err
+	}
+
+	tw := table.NewWriter()
+	tw.SetOutputMirror(w)
+	tw.SetStyle(table.StyleRounded)
+	tw.SetColumnConfigs([]table.ColumnConfig{
+		{Name: "PREVIEW", WidthMax: 60},
+	})
+	tw.AppendHeader(table.Row{"ID", "FILE", "LINE", "REPLY", "PREVIEW"})
+
+	for _, row := range rows {
+		line := ""
+		if row.Line > 0 {
+			line = fmt.Sprintf("%d", row.Line)
+		}
+		tw.AppendRow(table.Row{
+			row.ID,
+			row.File,
+			line,
+			row.DiscussionID,
+			row.Preview,
+		})
+	}
+
+	tw.Render()
+
+	_, err := fmt.Fprintf(
+		w,
+		"\n%d of %d draft notes (page %d of %d)\n",
+		len(rows),
+		paging.totalItems,
+		paging.page,
+		paging.totalPages,
+	)
+	return err
+}
+
 func renderDiscussionTable(w io.Writer, rows []discussionRowOutput, paging mrListPaging) error {
 	if len(rows) == 0 {
 		_, err := fmt.Fprintln(w, "No discussion threads found. Try --state all, --system, or relax other filters.")

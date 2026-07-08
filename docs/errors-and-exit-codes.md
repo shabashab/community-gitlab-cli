@@ -48,6 +48,11 @@ Design rules:
 | `invalid_discussion_ref` | discussion reference that is not a 40-character hex ID or a prefix of one | 2 |
 | `ambiguous_discussion_ref` | discussion ID prefix matching more than one thread (match count in the message) | 2 |
 | `discussion_not_found` | discussion ID prefix matching no thread on the merge request (a full 40-character ID that does not exist surfaces as `gitlab_not_found` instead — the API answers that lookup) | 1 |
+| `invalid_draft_note_id` | `mr drafts publish`/`delete` draft-id argument that is not a positive integer | 2 |
+| `merge_request_diff_not_ready` | positioned `mr comment` while GitLab is still preparing the merge request diff (`diff_refs` empty — populates asynchronously after creation; retry shortly) | 1 |
+| `file_not_in_diff` | `mr comment --file` path matching no file changed by the merge request (hint lists changed paths) | 1 |
+| `line_not_in_diff` | `mr comment --line`/`--old-line` addressing a line that is not visible in the merge request diff on the requested side (hint lists the commentable ranges and suggests the other side when the line exists there) | 1 |
+| `diff_too_large` | positioned `mr comment` on a file whose diff GitLab returns collapsed/too large — line resolution is impossible; comment file-level instead | 1 |
 | `missing_gitlab_token` | no token from flag, env, or credential store | 1 |
 | `missing_gitlab_base_url` | `auth login` without explicit `--gitlab-base-url` | 1 |
 | `invalid_gitlab_token` | token verification failed during `auth login` | 1 |
@@ -95,3 +100,9 @@ help[1]: Run `auth login <token> --gitlab-base-url <url>` to authenticate again
 Apply the same rule to future mutations (closing an already-closed MR, deleting an absent label): acknowledge, report `noop`, exit 0. Reserve non-zero exits for intents that genuinely cannot be satisfied.
 
 The boundary of the rule is verifiability. `mr create` hitting a 409 because an open merge request already exists for the branch pair is **not** a no-op: the existing merge request may not match the requested title, description, or reviewers, so the intent cannot be confirmed as satisfied. It fails with `gitlab_conflict` (exit 1) and a hint to inspect the existing merge request. Report `noop` only when the observed state provably equals the requested state.
+
+The draft-note commands apply the same boundary:
+
+- `mr drafts publish <iid> --all` with nothing pending is a **no-op** (exit 0, `published: {all: true, count: 0, noop: true}`): the CLI lists first, and an observed-empty set provably satisfies "all my drafts are published".
+- `mr drafts delete <iid> <id>` hitting a 404 is a **verified no-op** (exit 0, `deleted: {id, noop: true}`) only when a successful follow-up list proves the ID is absent; if the list itself fails, the original 404 error stands (exit 1).
+- `mr drafts publish <iid> <id>` hitting a 404 is **not** a no-op: publishing a specific missing draft cannot be confirmed as satisfied — it fails as `gitlab_not_found` (exit 1) with a hint to list the pending drafts.
