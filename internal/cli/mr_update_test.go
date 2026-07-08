@@ -16,7 +16,8 @@ import (
 
 // newMRUpdateTestServer stubs the endpoints mr update can touch: the PUT
 // itself (body captured), the GET used by --draft/--ready to fetch the
-// current title (calls counted), and username lookups.
+// current title (calls counted), username lookups, and the list lookup used
+// by the "current" ref (returns merge request 123).
 func newMRUpdateTestServer(t *testing.T, currentTitle string) (*httptest.Server, *map[string]any, *int) {
 	t.Helper()
 
@@ -44,6 +45,8 @@ func newMRUpdateTestServer(t *testing.T, currentTitle string) (*httptest.Server,
 		case r.URL.EscapedPath() == "/api/v4/projects/group%2Fproject/merge_requests/123" && r.Method == http.MethodGet:
 			getCalls++
 			fmt.Fprintf(w, `{"id":1123,"iid":123,"title":%q}`, currentTitle)
+		case r.URL.EscapedPath() == "/api/v4/projects/group%2Fproject/merge_requests" && r.Method == http.MethodGet:
+			fmt.Fprint(w, "["+mergeRequestJSON(123, "current description")+"]")
 		default:
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.EscapedPath())
 			w.WriteHeader(http.StatusNotFound)
@@ -56,6 +59,12 @@ func newMRUpdateTestServer(t *testing.T, currentTitle string) (*httptest.Server,
 func executeMRUpdateCommand(t *testing.T, baseURL string, stdin io.Reader, extraArgs ...string) (string, error) {
 	t.Helper()
 
+	return executeMRUpdateRefCommand(t, baseURL, "123", stdin, extraArgs...)
+}
+
+func executeMRUpdateRefCommand(t *testing.T, baseURL, ref string, stdin io.Reader, extraArgs ...string) (string, error) {
+	t.Helper()
+
 	var out bytes.Buffer
 	cmd, _ := newRootCommand("gl", "test", "test", commandModeStandard)
 	cmd.SetOut(&out)
@@ -65,7 +74,7 @@ func executeMRUpdateCommand(t *testing.T, baseURL string, stdin io.Reader, extra
 	}
 
 	args := []string{
-		"mr", "update", "123",
+		"mr", "update", ref,
 		"--gitlab-token", "test-token",
 		"--gitlab-base-url", baseURL,
 		"--project", "group/project",
@@ -539,5 +548,58 @@ func TestStripDraftTitle(t *testing.T) {
 		if got := stripDraftTitle(title); got != want {
 			t.Fatalf("stripDraftTitle(%q) = %q, want %q", title, got, want)
 		}
+	}
+}
+
+func TestMRUpdateCurrentResolvesIID(t *testing.T) {
+	stubCurrentBranch(t, "feature/search", nil)
+
+	server, body, _ := newMRUpdateTestServer(t, "old title")
+	defer server.Close()
+
+	out, err := executeMRUpdateRefCommand(t, server.URL, "current", nil, "--title", "Rework")
+	if err != nil {
+		t.Fatalf("mr update current returned error: %v", err)
+	}
+
+	if (*body)["title"] != "Rework" {
+		t.Fatalf("body[title] = %v, want Rework", (*body)["title"])
+	}
+	if !strings.Contains(out, `"iid": 123`) {
+		t.Fatalf("output = %q, want resolved iid fragment", out)
+	}
+}
+
+func TestMRUpdateCurrentDraftFetchesTitle(t *testing.T) {
+	stubCurrentBranch(t, "feature/search", nil)
+
+	server, body, getCalls := newMRUpdateTestServer(t, "Fix auth")
+	defer server.Close()
+
+	_, err := executeMRUpdateRefCommand(t, server.URL, "current", nil, "--draft")
+	if err != nil {
+		t.Fatalf("mr update current --draft returned error: %v", err)
+	}
+
+	if *getCalls != 1 {
+		t.Fatalf("current title GET calls = %d, want 1", *getCalls)
+	}
+	if (*body)["title"] != "Draft: Fix auth" {
+		t.Fatalf("body[title] = %v, want Draft: Fix auth", (*body)["title"])
+	}
+}
+
+func TestMRUpdateCurrentNoFlagsUsageError(t *testing.T) {
+	stubCurrentBranch(t, "feature/search", nil)
+
+	server, _, _ := newMRUpdateTestServer(t, "old title")
+	defer server.Close()
+
+	_, err := executeMRUpdateRefCommand(t, server.URL, "current", nil)
+	if !errors.Is(err, errNoUpdateFlags) {
+		t.Fatalf("mr update current error = %v, want errNoUpdateFlags", err)
+	}
+	if exitCodeForError(err) != 2 {
+		t.Fatalf("exitCodeForError = %d, want 2 for usage error", exitCodeForError(err))
 	}
 }

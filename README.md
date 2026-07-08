@@ -182,7 +182,7 @@ gl auth logout                                                 # remove the stor
 
 The `mr` command works with merge requests in the current project (or `--project`).
 
-Reference a specific merge request as `!<iid>` or plain `<iid>`. In bash and zsh, quote the bang form (`'!123'`) to avoid shell history expansion; plain `123` always works unquoted.
+Reference a specific merge request as `!<iid>`, plain `<iid>`, or `current` — the open merge request whose source branch is the currently checked out git branch. In bash and zsh, quote the bang form (`'!123'`) to avoid shell history expansion; plain `123` always works unquoted.
 
 ```sh
 gl mr                          # list open merge requests (same as gl mr list)
@@ -192,6 +192,7 @@ gl mr list --order-by updated_at --sort asc --limit 50 --page 2
 gl mr '!123'                   # show one merge request (compact fields)
 gl mr 123 --full               # all fields and the complete description
 gl mr view '!123'              # explicit subcommand form, same behavior
+gl mr current                  # the MR of the currently checked out branch
 ```
 
 - `gl mr list` renders a table; `--output json` returns `{merge_requests, count, total, page, total_pages}`.
@@ -199,6 +200,7 @@ gl mr view '!123'              # explicit subcommand form, same behavior
 - `gl-axi mr` prints compact TOON rows (`iid,title,state,author` by default) with a definitive `count: N of M total` line and `help[]` hints for the next step (view command, next page when one exists, filter relaxation on empty results). Hints carry an explicit `--project` forward when one was passed.
 - `gl-axi mr list --fields draft,source_branch,target_branch,updated_at,web_url` adds columns to the compact schema; unknown field names are rejected with the valid set inline.
 - List filters: `--state`, `--search`, `--label`, `--author`, `--reviewer`, `--source-branch`, `--target-branch`, `--draft`, `--milestone`, `--order-by`, `--sort`, `--limit`, `--page`.
+- The `current` ref matches open merge requests only and fails loud (exit 1) instead of guessing: no match is `no_current_merge_request`, several matches (same source branch, different targets) is `ambiguous_current_merge_request` with the candidate iids listed, and an unresolvable branch (detached HEAD, outside a repository) is `missing_current_branch`.
 
 ### Creating merge requests
 
@@ -223,6 +225,7 @@ gl mr update 123 --title "Rework search endpoint" --ready
 gl mr update '!123' --add-label backend --remove-label triage --assignee mona
 gl mr update 123 --description ""              # clear the description
 gl mr update 123 --squash=false                # explicitly disable squash
+gl mr update current --ready                   # update the current branch's MR
 ```
 
 - A field is sent to GitLab only when its flag is passed — unset fields keep their current values. Running `mr update` with no field flags is a usage error (exit 2), not a silent no-op.

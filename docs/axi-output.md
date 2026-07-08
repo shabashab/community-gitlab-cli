@@ -60,6 +60,7 @@ Inside a GitLab repository the content is the project's open merge requests (up 
 - When (and only when) truncation happened, a hint suggests the escape hatch: `help[1]: Run `mr view 42 --full` for the complete description and all fields`.
 - `--full` returns every field (assignees, reviewers, labels, milestone, changes_count, sha, timestamps, ...) and the complete description, with no hints — the view is self-contained.
 - String lists (assignees, reviewers, labels) are TOON inline arrays: `labels[2]: backend,search`.
+- The literal ref `current` (`gl-axi mr current` / `mr view current`) resolves to the open merge request whose source branch is the currently checked out git branch. Only open merge requests match. Zero matches fail loud with `no_current_merge_request`, several matches with `ambiguous_current_merge_request` (candidates listed), and an unresolvable branch (detached HEAD, not a repository) with `missing_current_branch` — all exit 1 with runnable hints.
 
 ## Merge request create
 
@@ -83,7 +84,7 @@ help[1]: Run `mr view 42` to check merge status and pipeline results
 
 ## Merge request update
 
-`gl-axi mr update <!iid|iid> --<flag> <value>` updates an existing merge request and returns the same compact `merge_request:` object plus the `mr view <iid>` next-step hint as create.
+`gl-axi mr update <!iid|iid|current> --<flag> <value>` updates an existing merge request and returns the same compact `merge_request:` object plus the `mr view <iid>` next-step hint as create. The `current` ref resolves exactly as in the view command.
 
 - **A field is sent iff its flag was passed.** Unset fields keep their current values on GitLab; there are no implicit defaults. Calling `mr update` with no field flags at all is a usage error (`no_update_flags`, exit 2) — nothing was requested.
 - Explicitly empty values clear: `--description ""` clears the description, `--assignee ""` unassigns everyone, `--reviewer ""` removes all reviewers, `--label ""` removes all labels, `--milestone-id 0` unassigns the milestone. `--title ""` and `--target-branch ""` are usage errors — those fields cannot be cleared.

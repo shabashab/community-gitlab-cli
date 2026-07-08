@@ -60,7 +60,7 @@ func newMRUpdateCommand(rootOpts *rootOptions, projOpts *projectOptions) *cobra.
 	opts := &mrUpdateOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "update <!iid|iid>",
+		Use:   "update <!iid|iid|current>",
 		Short: "Update a merge request",
 		Long: `Update an existing merge request in the current project.
 
@@ -70,7 +70,7 @@ the description, --assignee "" unassigns everyone, --label "" removes all
 labels, and --milestone-id 0 unassigns the milestone.`,
 		Args: wrapArgsValidator(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			iid, err := parseMergeRequestRef(args[0])
+			iid, err := resolveMergeRequestRef(cmd, rootOpts, projOpts, args[0])
 			if err != nil {
 				return err
 			}
