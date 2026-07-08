@@ -52,6 +52,12 @@ gl-axi mr update current --ready
 gl-axi mr discussions 123                          # unresolved review threads
 gl-axi mr discussions current --order-by updated_at --sort desc
 gl-axi mr discussion 123 6f9a1c2d                  # full conversation of one thread
+gl-axi mr comment 123 --body "LGTM overall"        # new resolvable thread
+gl-axi mr comment 123 --file src/app.go --line 42 --body "typo"   # diff-line comment
+gl-axi mr comment 123 --draft --file src/app.go --line 10:15 --body-file -  # draft, range, stdin
+gl-axi mr comment 123 --reply-to 6f9a1c2d --body "agreed"         # reply to a thread
+gl-axi mr drafts 123                               # your pending draft notes
+gl-axi mr drafts publish 123 --all                 # publish the pending review
 ```
 
 - List rows default to `iid,title,state,author`; `--fields` adds
@@ -85,6 +91,22 @@ gl-axi mr discussion 123 6f9a1c2d                  # full conversation of one th
 - `mr discussion <iid> <id>` prints one thread with complete note bodies.
   `<id>` is the 8-char id from the list (any unique prefix works) or the full
   40-char ID.
+- `mr comment <iid> --body <text>` adds a review comment: a resolvable
+  thread by default, `--note` for a plain non-resolvable note. `--file
+  <path>` anchors to a changed file (alone = file-level comment); `--line
+  <n|a:b>` targets the new file version, `--old-line` the old one (removed
+  lines). Pass plain line numbers only — the CLI computes GitLab's diff
+  position (SHAs, old/new pairing, line codes) itself. `--body-file -` reads
+  stdin. `--reply-to <id>` answers an existing thread. Position failures are
+  loud with runnable hints (`file_not_in_diff` lists changed paths,
+  `line_not_in_diff` lists commentable ranges,
+  `merge_request_diff_not_ready` means retry shortly).
+- `--draft` turns any comment into a pending draft note nobody else sees
+  yet. Review flow: N × `mr comment <iid> --draft ...`, then one
+  `mr drafts publish <iid> --all` — the review lands atomically. `mr drafts
+  <iid>` lists pending drafts, `mr drafts delete <iid> <id>` discards one,
+  and `--resolve` on a draft reply resolves its thread at publish time.
+  `publish --all` with nothing pending is a no-op (exit 0).
 
 ## Auth
 

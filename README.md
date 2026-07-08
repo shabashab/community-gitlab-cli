@@ -250,6 +250,44 @@ gl mr discussion 123 6f9a1c2d                        # full conversation of one 
 - Thread IDs are 40-character hex strings; lists show the 8-character prefix and every command accepts any unique prefix (ambiguous prefixes fail with the match count, exit 2). `gl-axi` rows are `id,author,state,notes,updated_at,preview` with `--fields type,file,line,created_at,id_full` extras; `gl` renders a table, `--output json` returns `{discussions, count, total, page, total_pages}` with full IDs.
 - `mr discussion <!iid|iid|current> <discussion-id>` prints one thread's full conversation — every note with its complete body, author, timestamps, and, for diff threads, the file and line the thread is anchored to.
 
+### Commenting on merge requests
+
+```sh
+gl mr comment 123 --body "LGTM overall"                        # new resolvable thread
+gl mr comment 123 --note --body "FYI: deploy scheduled"        # plain non-resolvable note
+gl mr comment 123 --file src/app.go --body "rename this file"  # file-level comment
+gl mr comment 123 --file src/app.go --line 42 --body "typo"    # anchored to a diff line
+gl mr comment 123 --file src/app.go --line 10:15 --body "extract this"  # line range
+gl mr comment 123 --file src/app.go --old-line 40 --body "why removed?" # removed line
+gl mr comment 123 --reply-to 6f9a1c2d --body "agreed"          # reply to a thread
+rg -n "TODO" | gl mr comment current --body-file -             # body from stdin
+```
+
+- The body is dual-input per the repo convention: `--body <text>` inline, `--body-file <path>` for a file, `--body-file -` for stdin. One of them is required.
+- Without position flags the comment starts a resolvable discussion thread; `--note` posts a plain non-resolvable note instead (GitLab UI's "Add comment" vs "Start thread").
+- **The CLI resolves diff positions itself.** `--line` addresses the new file version, `--old-line` the old one; the CLI fetches the merge request diff, classifies the line (added / removed / unchanged), and sends GitLab the correct position — diff SHAs, both paths (renames included), the old/new line pairing that unchanged lines require, and the `line_code`s ranges need. You never pass SHAs.
+- Position failures are loud, before anything is posted: `file_not_in_diff` lists changed paths, `line_not_in_diff` lists the commentable line ranges (and suggests `--old-line` when the line exists on the other side), `merge_request_diff_not_ready` means GitLab is still preparing the diff (retry shortly), `diff_too_large` means only a file-level comment is possible.
+- `--reply-to <discussion-id>` (full 40-char ID or unique prefix from `mr discussions`) answers an existing thread; it cannot combine with position flags.
+- If GitLab accepts the comment but silently drops the requested position (a known API behavior), the output's `type`/`file`/`line` show what actually happened and a hint flags it — the comment was still created.
+
+### Draft review notes (pending reviews)
+
+`--draft` turns any `mr comment` form (positioned, file-level, plain, reply) into a pending draft note that only you can see until it is published — GitLab's "start a review" flow, which `glab` does not cover:
+
+```sh
+gl mr comment 123 --draft --file src/app.go --line 42 --body "inverted check"
+gl mr comment 123 --draft --reply-to 6f9a1c2d --resolve --body "fixed in latest push"
+gl mr drafts 123                     # list your pending drafts (id,file,line,preview)
+gl mr drafts publish 123 --all       # publish the whole review at once
+gl mr drafts publish 123 77          # publish a single draft
+gl mr drafts delete 123 77           # discard a draft
+```
+
+- The recommended agent review flow is N × `mr comment --draft ...` followed by one `mr drafts publish --all`: the review lands atomically and is gentler on rate limits than N immediate comments.
+- `--resolve` (draft replies only) resolves the replied-to thread when the draft publishes.
+- Idempotency: `publish --all` with nothing pending is a no-op (exit 0, `noop: true`); deleting a draft that is verifiably absent is a no-op; publishing a specific missing draft ID is an error (`gitlab_not_found`, exit 1).
+- `gl mr drafts` renders a table; `--output json` returns `{draft_notes, count, total, page, total_pages}`. `gl-axi` rows are `id,file,line,preview` with `--fields discussion_id,resolve_discussion` extras.
+
 ## Agent Session Integrations (gl-axi)
 
 `gl-axi setup hooks` installs SessionStart integrations so agent sessions start with ambient GitLab context — the open merge requests of the repository the session starts in:

@@ -136,6 +136,67 @@ notes[2]{id,author,created_at,updated_at,system,body}:
 - `<discussion-id>` is the full 40-character hex ID (fetched directly) or any unique prefix (resolved against the thread list, case-insensitive). An ambiguous prefix is a usage error (`ambiguous_discussion_ref`, exit 2) stating the match count; a prefix matching nothing is `discussion_not_found` (exit 1). A full ID that does not exist surfaces as the API's `gitlab_not_found`.
 - `file`/`line` appear only for diff threads; `resolved_by`/`resolved_at` only for resolved threads.
 
+## Merge request comment
+
+`gl-axi mr comment <!iid|iid|current> --body <text>` creates a review comment and returns a compact `comment:` object — the created note's identifiers and what GitLab actually anchored, never a body echo (the caller knows what it wrote):
+
+```
+comment:
+  discussion_id: 6f9a1c2d
+  note_id: 9001
+  author: reviewer
+  type: DiffNote
+  resolvable: true
+  file: src/app.go
+  line: 42
+  created_at: "2026-07-08T10:00:00Z"
+help[1]: Run `mr discussion 123 6f9a1c2d` for the full thread
+```
+
+- The body is dual-input per the content-flags convention: `--body <text>` inline, or `--body-file <path>` (`-` reads stdin, the primary agent path). Passing both, or neither, is a usage error.
+- Without position flags the comment starts a resolvable discussion thread. `--note` posts a plain non-resolvable note via the notes API instead (its output carries no `discussion_id`).
+- **Positioning is resolved by the CLI, not the caller.** `--file <path>` anchors to a changed file (alone: a file-level comment); `--line <n>` addresses the new file version, `--old-line <n>` the old one (removed lines); `<start>:<end>` covers a range. The CLI fetches the merge request diff, classifies the target line (added / removed / unchanged), and builds GitLab's position object — SHAs, `old_path`/`new_path` (renames included), the old/new line pairing, and fabricated `line_code`s for ranges. Callers never supply SHAs.
+- Position failures are loud and specific: `merge_request_diff_not_ready` (diff refs still being prepared — retry), `file_not_in_diff` (hint lists changed paths), `line_not_in_diff` (hint lists the commentable line ranges, plus a cross-side suggestion when the line exists on the other side), `diff_too_large` (comment file-level instead). All exit 1 before anything is posted.
+- `--draft` creates the comment as a pending draft note instead (see below). `--reply-to <discussion-id>` (full ID or unique prefix) answers an existing thread; it cannot combine with position flags or `--note`. `--resolve` (draft replies only) resolves the thread when the draft publishes.
+- **Position downgrade surfacing:** GitLab can answer 201 yet silently attach the comment to the merge request instead of the requested diff line. The output's `type`/`file`/`line` reflect the response, and when a requested position did not stick a hint says so — the mutation still succeeded (exit 0), so agents must not retry.
+
+## Draft notes
+
+`gl-axi mr comment <iid> --draft ...` returns a compact `draft_note:` object. GitLab's draft-note response is thin (no author name, no timestamps), and the preview is the flattened 80-rune head of the body:
+
+```
+draft_note:
+  id: 77
+  preview: This nil check is inverted
+  file: src/app.go
+  line: 42
+help[1]: Run `mr drafts publish 123 77` to publish it, or `mr drafts publish 123 --all` for the whole pending review
+help[2]: Run `mr drafts 123` to list pending drafts
+```
+
+The intended agent review flow is N × `mr comment <iid> --draft ...` followed by one `mr drafts publish <iid> --all` — the review lands atomically and is gentler on rate limits than N immediate comments.
+
+`gl-axi mr drafts <!iid|iid|current>` lists your pending drafts with the default schema `id,file,line,preview` (`--fields discussion_id,resolve_discussion` adds columns; `discussion_id` is set only on reply drafts). The draft-notes API has no filters, so paging (`--limit`/`--page`) is client-side and `count: N of M total` is always exact:
+
+```
+draft_notes[2]{id,file,line,preview}:
+  77,src/app.go,42,This nil check is inverted
+  78,,0,Overall direction looks good
+count: 2 of 2 total
+help[1]: Run `mr drafts publish 123 --all` to publish the pending review, or `mr drafts publish 123 <id>` for a single draft
+```
+
+`gl-axi mr drafts publish <iid> <draft-id>` publishes one draft; `--all` bulk-publishes every pending draft (the two forms are mutually exclusive, and one must be given). The output is a `published:` object with the count of drafts observed at publish time:
+
+```
+published:
+  all: true
+  count: 3
+help[1]: Run `mr discussions 123` to see the published threads
+```
+
+`gl-axi mr drafts delete <iid> <draft-id>` deletes one pending draft and returns a `deleted:` object. See the idempotency notes in [errors-and-exit-codes.md](errors-and-exit-codes.md) for the no-op rules (`publish --all` on an empty set, delete of a verified-absent draft).
+
 ## Auth and project outputs
 
 - `auth login` → `login:` object plus hints for the next step.
