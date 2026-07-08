@@ -136,6 +136,31 @@ notes[2]{id,author,created_at,updated_at,system,body}:
 - `<discussion-id>` is the full 40-character hex ID (fetched directly) or any unique prefix (resolved against the thread list, case-insensitive). An ambiguous prefix is a usage error (`ambiguous_discussion_ref`, exit 2) stating the match count; a prefix matching nothing is `discussion_not_found` (exit 1). A full ID that does not exist surfaces as the API's `gitlab_not_found`.
 - `file`/`line` appear only for diff threads; `resolved_by`/`resolved_at` only for resolved threads.
 
+## Merge request diff
+
+`gl-axi mr diff <!iid|iid|current>` returns a compact changed-file summary, not a patch dump:
+
+```
+diff:
+  iid: 123
+  base_sha: base000
+  start_sha: start000
+  head_sha: head000
+  files: 2
+files[2]{path,status,additions,deletions,hunks}:
+  src/app.go,modified,2,1,1
+  new/name.go,renamed,1,1,1
+count: 2 of 2 total
+help[1]: Run `mr diff 123 --file <path> --fields new_ranges,old_ranges` for one file
+help[2]: Run `mr diff export 123 --dir .gl-axi/mr-123` to create a filesystem review bundle
+help[3]: Run `mr comment 123 --file <path> --line <line> --body <text>` to comment on a diff line
+```
+
+- Default rows are `path,status,additions,deletions,hunks`; `--fields old_path,generated,collapsed,too_large,new_ranges,old_ranges` adds columns. `status` is `added`, `deleted`, `renamed`, or `modified`.
+- `--file <path>` accepts the old or new repository-relative path and narrows the result to one changed file. `--limit`/`--page` are client-side over the full changed-file list; totals are exact.
+- `mr diff patch <iid>` writes GitLab's raw unified diff bytes directly to stdout and intentionally bypasses structured TOON output.
+- `mr diff export <iid> --dir <path>` writes an agent review bundle: `manifest.toon`, `files.toon`, `patch.diff`, `diffs/<path>.diff`, and changed-file snapshots under `old/` and `new/`, pinned to the merge request diff refs. Non-empty export directories are refused unless `--force` is passed.
+
 ## Merge request comment
 
 `gl-axi mr comment <!iid|iid|current> --body <text>` creates a review comment and returns a compact `comment:` object — the created note's identifiers and what GitLab actually anchored, never a body echo (the caller knows what it wrote):

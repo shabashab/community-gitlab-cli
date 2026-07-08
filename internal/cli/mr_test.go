@@ -217,7 +217,7 @@ func TestMRCommandRejectsUnknownAction(t *testing.T) {
 		"--gitlab-token", "test-token",
 		"--gitlab-base-url", server.URL,
 		"--project", "group/project",
-		"!123", "diff",
+		"!123", "bogus",
 	})
 
 	err := cmd.Execute()

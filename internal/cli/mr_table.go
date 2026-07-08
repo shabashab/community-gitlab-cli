@@ -101,6 +101,43 @@ func renderDraftNoteTable(w io.Writer, rows []draftNoteOutput, paging mrListPagi
 	return err
 }
 
+func renderMRDiffTable(w io.Writer, rows []mrDiffFileOutput, paging mrListPaging) error {
+	if len(rows) == 0 {
+		_, err := fmt.Fprintln(w, "No changed files found.")
+		return err
+	}
+
+	tw := table.NewWriter()
+	tw.SetOutputMirror(w)
+	tw.SetStyle(table.StyleRounded)
+	tw.SetColumnConfigs([]table.ColumnConfig{
+		{Name: "PATH", WidthMax: 80},
+	})
+	tw.AppendHeader(table.Row{"PATH", "STATUS", "+", "-", "HUNKS"})
+
+	for _, row := range rows {
+		tw.AppendRow(table.Row{
+			row.Path,
+			row.Status,
+			row.Additions,
+			row.Deletions,
+			row.Hunks,
+		})
+	}
+
+	tw.Render()
+
+	_, err := fmt.Fprintf(
+		w,
+		"\n%d of %d changed files (page %d of %d)\n",
+		len(rows),
+		paging.totalItems,
+		paging.page,
+		paging.totalPages,
+	)
+	return err
+}
+
 func renderDiscussionTable(w io.Writer, rows []discussionRowOutput, paging mrListPaging) error {
 	if len(rows) == 0 {
 		_, err := fmt.Fprintln(w, "No discussion threads found. Try --state all, --system, or relax other filters.")

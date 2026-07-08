@@ -182,7 +182,7 @@ func classifyError(err error, bin string) (code, message string, help []string) 
 		}
 	case errors.Is(err, errUnknownMergeRequestAction):
 		return "unknown_merge_request_action", message, []string{
-			fmt.Sprintf("Supported actions: view (alias: info), update, discussions, comment, drafts — run `%s mr --help` for usage", bin),
+			fmt.Sprintf("Supported actions: view (alias: info), diff, update, discussions, comment, drafts — run `%s mr --help` for usage", bin),
 		}
 	case errors.Is(err, errInvalidDiscussionRef):
 		return "invalid_discussion_ref", message, []string{
@@ -231,6 +231,14 @@ func classifyError(err error, bin string) (code, message string, help []string) 
 	case errors.Is(err, errInvalidDraftNoteID):
 		return "invalid_draft_note_id", message, []string{
 			fmt.Sprintf("Draft note IDs are numeric — copy one from `%s mr drafts !<iid>`", bin),
+		}
+	case errors.Is(err, errUnsafeExportPath):
+		return "unsafe_export_path", message, []string{
+			"Exported repository paths must be relative paths that stay inside the bundle directory",
+		}
+	case errors.Is(err, errExportDirNotEmpty):
+		return "export_dir_not_empty", message, []string{
+			"Choose an empty --dir, or pass --force to replace the existing path",
 		}
 	case errors.Is(err, errMissingCurrentBranch):
 		return "missing_current_branch", message, []string{
