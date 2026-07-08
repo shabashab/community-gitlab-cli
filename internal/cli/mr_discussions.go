@@ -14,18 +14,19 @@ import (
 )
 
 var (
-	errInvalidDiscussionRef   = errors.New("invalid discussion reference")
-	errAmbiguousDiscussionRef = errors.New("ambiguous discussion reference")
-	errDiscussionNotFound     = errors.New("discussion not found")
+	errInvalidDiscussionRef    = errors.New("invalid discussion reference")
+	errAmbiguousDiscussionRef  = errors.New("ambiguous discussion reference")
+	errDiscussionNotFound      = errors.New("discussion not found")
+	errDiscussionNotResolvable = errors.New("discussion is not resolvable")
 )
 
 const (
-	defaultDiscussionStateFilter       = "unresolved"
-	defaultDiscussionOrderBy           = "created_at"
-	defaultDiscussionSortDirection     = "asc"
-	discussionPreviewLimit             = 80
-	discussionShortIDLength            = 8
-	discussionFetchPageSize      int64 = 100
+	defaultDiscussionStateFilter         = "unresolved"
+	defaultDiscussionOrderBy             = "created_at"
+	defaultDiscussionSortDirection       = "asc"
+	discussionPreviewLimit               = 80
+	discussionShortIDLength              = 8
+	discussionFetchPageSize        int64 = 100
 	// mrDiscussionViewCommandName is how help hints reference the
 	// single-thread view command; change here if it is ever renamed.
 	mrDiscussionViewCommandName = "mr discussion"
@@ -125,7 +126,10 @@ complete bodies.
 
 <discussion-id> is the full 40-character hex ID or any unique prefix of one,
 as shown by "mr discussions". The literal reference "current" resolves to the
-open merge request of the currently checked out git branch.`,
+open merge request of the currently checked out git branch.
+
+Use "mr discussion resolve" or "mr discussion unresolve" to change the
+resolution state of a resolvable thread.`,
 		Args: wrapArgsValidator(cobra.ExactArgs(2)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			iid, err := resolveMergeRequestRef(cmd, rootOpts, projOpts, args[0])
@@ -134,6 +138,38 @@ open merge request of the currently checked out git branch.`,
 			}
 
 			return runMRDiscussionView(cmd, rootOpts, projOpts, iid, args[1])
+		},
+	}
+
+	cmd.AddCommand(newMRDiscussionResolveCommand(rootOpts, projOpts, "resolve", true))
+	cmd.AddCommand(newMRDiscussionResolveCommand(rootOpts, projOpts, "unresolve", false))
+
+	return cmd
+}
+
+func newMRDiscussionResolveCommand(rootOpts *rootOptions, projOpts *projectOptions, action string, desired bool) *cobra.Command {
+	short := "Resolve a merge request discussion thread"
+	if !desired {
+		short = "Unresolve a merge request discussion thread"
+	}
+
+	cmd := &cobra.Command{
+		Use:   action + " <!iid|iid|current> <discussion-id>",
+		Short: short,
+		Long: fmt.Sprintf(`%s a resolvable discussion thread on a merge request in the current project.
+
+<discussion-id> is the full 40-character hex ID or any unique prefix of one,
+as shown by "mr discussions". Already-%sd threads are reported as no-ops and
+exit 0. The literal reference "current" resolves to the open merge request of
+the currently checked out git branch.`, strings.ToUpper(action[:1])+action[1:], action),
+		Args: wrapArgsValidator(cobra.ExactArgs(2)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			iid, err := resolveMergeRequestRef(cmd, rootOpts, projOpts, args[0])
+			if err != nil {
+				return err
+			}
+
+			return runMRDiscussionResolve(cmd, rootOpts, projOpts, iid, args[1], action, desired)
 		},
 	}
 
@@ -256,6 +292,50 @@ func runMRDiscussionView(cmd *cobra.Command, rootOpts *rootOptions, projOpts *pr
 	}
 
 	return writeDiscussion(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, discussion)
+}
+
+func runMRDiscussionResolve(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOptions, iid int64, ref, action string, desired bool) error {
+	resolved, err := resolveProject(cmd, rootOpts, projOpts)
+	if err != nil {
+		return err
+	}
+
+	client, err := rootOpts.newGitLabClientWithBaseURLFallback(resolved.baseURL)
+	if err != nil {
+		return err
+	}
+
+	ctx := commandContext(cmd)
+	discussion, err := resolveDiscussionRef(ctx, client, resolved.ref, iid, ref)
+	if err != nil {
+		return err
+	}
+
+	hints := &mrHintContext{project: explicitProjectRef(projOpts)}
+	summary, ok := summarizeDiscussion(discussion)
+	if !ok || !summary.resolvable {
+		return newHelpError(
+			fmt.Errorf("%w: discussion %s on merge request !%d cannot be resolved or unresolved", errDiscussionNotResolvable, shortDiscussionID(discussion.ID), iid),
+			fmt.Sprintf("Run `%s %d %s%s` for the full thread", mrDiscussionViewCommandName, iid, shortDiscussionID(discussion.ID), hints.projectSuffix()),
+		)
+	}
+
+	if summary.resolved == desired {
+		return writeDiscussionAction(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, discussion, action, true, iid, hints)
+	}
+
+	updated, _, err := client.Discussions.ResolveMergeRequestDiscussion(
+		resolved.ref,
+		iid,
+		discussion.ID,
+		&gitlab.ResolveMergeRequestDiscussionOptions{Resolved: gitlab.Ptr(desired)},
+		gitlab.WithContext(ctx),
+	)
+	if err != nil {
+		return fmt.Errorf("%s discussion %s on merge request !%d in project %q: %w", action, shortDiscussionID(discussion.ID), iid, resolved.ref, err)
+	}
+
+	return writeDiscussionAction(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, updated, action, false, iid, hints)
 }
 
 // fetchAllMergeRequestDiscussions pages through the full discussion list. The

@@ -280,12 +280,15 @@ gl mr discussions current --state all --system       # every thread, incl. syste
 gl mr discussions 123 --order-by updated_at --sort desc   # what has news?
 gl mr discussions 123 --author @alice --fields file,line,id_full
 gl mr discussion 123 6f9a1c2d                        # full conversation of one thread
+gl mr discussion resolve 123 6f9a1c2d                # resolve a thread
+gl mr discussion unresolve current aa11bb22          # reopen a thread on the current MR
 ```
 
 - `mr discussions <!iid|iid|current>` lists the discussion threads of a merge request. **Unresolved threads only by default** — pass `--state all|resolved` to widen. `--author` filters by the thread starter's username (optional `@`, case-insensitive); `--system` includes system-generated activity, which is hidden by default. Non-resolvable threads (standalone comments, system notes) have state `none` and match only `--state all`.
 - The GitLab discussions API has no server-side filters or sorting, so the CLI fetches the complete thread list and filters, sorts (`--order-by created_at|updated_at`, `--sort asc|desc`), and pages (`--limit`, `--page`) client-side — totals are always exact. A thread's `updated_at` is the newest note update in it, so `--order-by updated_at --sort desc` surfaces threads with recent activity first.
 - Thread IDs are 40-character hex strings; lists show the 8-character prefix and every command accepts any unique prefix (ambiguous prefixes fail with the match count, exit 2). `gl-axi` rows are `id,author,state,notes,updated_at,preview` with `--fields type,file,line,created_at,id_full` extras; `gl` renders a table, `--output json` returns `{discussions, count, total, page, total_pages}` with full IDs.
 - `mr discussion <!iid|iid|current> <discussion-id>` prints one thread's full conversation — every note with its complete body, author, timestamps, and, for diff threads, the file and line the thread is anchored to.
+- `mr discussion resolve <!iid|iid|current> <discussion-id>` and `mr discussion unresolve <!iid|iid|current> <discussion-id>` toggle a resolvable thread through GitLab's discussion API. Already resolved/unresolved threads are verified no-ops (`noop: true`, exit 0); non-resolvable threads fail with `discussion_not_resolvable`.
 
 ### Inspecting merge request diffs
 

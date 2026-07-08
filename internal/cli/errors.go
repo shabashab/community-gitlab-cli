@@ -182,7 +182,7 @@ func classifyError(err error, bin string) (code, message string, help []string) 
 		}
 	case errors.Is(err, errUnknownMergeRequestAction):
 		return "unknown_merge_request_action", message, []string{
-			fmt.Sprintf("Supported actions: view (alias: info), approvals, approve, unapprove, merge, close, reopen, diff, update, discussions, comment, drafts — run `%s mr --help` for usage", bin),
+			fmt.Sprintf("Supported actions: view (alias: info), approvals, approve, unapprove, merge, close, reopen, diff, update, discussions, discussion resolve/unresolve, comment, drafts — run `%s mr --help` for usage", bin),
 		}
 	case errors.Is(err, errInvalidDiscussionRef):
 		return "invalid_discussion_ref", message, []string{
@@ -196,6 +196,10 @@ func classifyError(err error, bin string) (code, message string, help []string) 
 		return "discussion_not_found", message, []string{
 			fmt.Sprintf("Run `%s mr discussions !<iid>` to list existing threads and copy an ID", bin),
 		}
+	case errors.Is(err, errDiscussionNotResolvable):
+		return "discussion_not_resolvable", message, helpFromError(err,
+			fmt.Sprintf("Run `%s mr discussions !<iid> --state all` to find resolvable review threads", bin),
+		)
 	case errors.Is(err, errUserNotFound):
 		return "user_not_found", message, []string{
 			"Check the username spelling, or pass a numeric user ID to --assignee/--reviewer",

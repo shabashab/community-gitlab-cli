@@ -60,6 +60,8 @@ gl-axi mr reopen 123                              # reopen a closed MR
 gl-axi mr discussions 123                          # unresolved review threads
 gl-axi mr discussions current --order-by updated_at --sort desc
 gl-axi mr discussion 123 6f9a1c2d                  # full conversation of one thread
+gl-axi mr discussion resolve 123 6f9a1c2d          # resolve a thread
+gl-axi mr discussion unresolve current aa11bb22    # reopen a thread on the current MR
 gl-axi mr diff 123                                 # changed-file summary
 gl-axi mr diff 123 --file src/app.go --fields new_ranges,old_ranges
 gl-axi mr diff export 123 --dir .gl-axi/mr-123     # filesystem review bundle
@@ -102,7 +104,8 @@ gl-axi mr drafts publish 123 --all                 # publish the pending review
   and `mr reopen` change MR state. Already merged/closed/open states are
   verified no-ops (`noop: true`, exit 0).
 - The ref `current` (view, update, approvals, approve, unapprove, merge,
-  close, reopen, discussions, discussion) resolves via the current git branch to its open MR.
+  close, reopen, discussions, discussion, discussion resolve/unresolve)
+  resolves via the current git branch to its open MR.
   Open MRs only; zero or multiple matches fail loud (exit 1, codes
   `no_current_merge_request` /
   `ambiguous_current_merge_request` with candidates listed), as does an
@@ -117,6 +120,10 @@ gl-axi mr drafts publish 123 --all                 # publish the pending review
 - `mr discussion <iid> <id>` prints one thread with complete note bodies.
   `<id>` is the 8-char id from the list (any unique prefix works) or the full
   40-char ID.
+- `mr discussion resolve <iid> <id>` and `mr discussion unresolve <iid> <id>`
+  toggle a resolvable thread. Already resolved/unresolved threads are verified
+  no-ops (`noop: true`, exit 0); non-resolvable threads fail with
+  `discussion_not_resolvable`.
 - `mr diff <iid>` lists changed files as
   `path,status,additions,deletions,hunks`; `--fields` adds
   `old_path,generated,collapsed,too_large,new_ranges,old_ranges`.

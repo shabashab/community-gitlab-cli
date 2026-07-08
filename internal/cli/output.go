@@ -1480,6 +1480,13 @@ type discussionViewOutput struct {
 	Notes      []discussionNoteOutput `json:"notes" toon:"notes"`
 }
 
+type discussionActionOutput struct {
+	Discussion discussionDetailOutput `json:"discussion" toon:"discussion"`
+	Action     string                 `json:"action" toon:"action"`
+	Noop       bool                   `json:"noop,omitempty" toon:"noop,omitempty"`
+	Help       []string               `json:"help,omitempty" toon:"help,omitempty"`
+}
+
 type mrDiffSummaryOutput struct {
 	IID      int64  `json:"iid" toon:"iid"`
 	BaseSHA  string `json:"base_sha" toon:"base_sha"`
@@ -1750,8 +1757,9 @@ func discussionListHelp(count int, paging mrListPaging, hints *discussionHintCon
 }
 
 func writeDiscussion(w io.Writer, format string, mode commandMode, discussion *gitlab.Discussion) error {
-	if discussion == nil {
-		return errors.New("gitlab api returned an empty discussion response")
+	detail, err := discussionDetailFromDiscussion(discussion)
+	if err != nil {
+		return err
 	}
 
 	notes := make([]discussionNoteOutput, 0, len(discussion.Notes))
@@ -1769,10 +1777,40 @@ func writeDiscussion(w io.Writer, format string, mode commandMode, discussion *g
 		})
 	}
 
+	out := discussionViewOutput{Discussion: detail, Notes: notes}
+
+	if mode == commandModeAxi {
+		return writeAxi(w, format, out)
+	}
+
+	format, err = normalizeOutputFormat(format, mode)
+	if err != nil {
+		return err
+	}
+
+	if format == "json" {
+		return writeJSON(w, out)
+	}
+
+	return writeDiscussionText(w, out)
+}
+
+func discussionDetailFromDiscussion(discussion *gitlab.Discussion) (discussionDetailOutput, error) {
+	if discussion == nil {
+		return discussionDetailOutput{}, errors.New("gitlab api returned an empty discussion response")
+	}
+
+	notes := 0
+	for _, note := range discussion.Notes {
+		if note != nil {
+			notes++
+		}
+	}
+
 	detail := discussionDetailOutput{
 		ID:    strings.ToLower(discussion.ID),
 		State: "none",
-		Notes: len(notes),
+		Notes: notes,
 	}
 	if summary, ok := summarizeDiscussion(discussion); ok {
 		detail.State = summary.state
@@ -1786,13 +1824,28 @@ func writeDiscussion(w io.Writer, format string, mode commandMode, discussion *g
 		}
 	}
 
-	out := discussionViewOutput{Discussion: detail, Notes: notes}
+	return detail, nil
+}
+
+func writeDiscussionAction(w io.Writer, format string, mode commandMode, discussion *gitlab.Discussion, action string, noop bool, iid int64, hints *mrHintContext) error {
+	detail, err := discussionDetailFromDiscussion(discussion)
+	if err != nil {
+		return err
+	}
+
+	out := discussionActionOutput{
+		Discussion: detail,
+		Action:     action,
+		Noop:       noop,
+	}
 
 	if mode == commandModeAxi {
+		out.Discussion.ID = shortDiscussionID(out.Discussion.ID)
+		out.Help = discussionActionHelp(action, iid, out.Discussion.ID, hints)
 		return writeAxi(w, format, out)
 	}
 
-	format, err := normalizeOutputFormat(format, mode)
+	format, err = normalizeOutputFormat(format, mode)
 	if err != nil {
 		return err
 	}
@@ -1801,24 +1854,54 @@ func writeDiscussion(w io.Writer, format string, mode commandMode, discussion *g
 		return writeJSON(w, out)
 	}
 
-	return writeDiscussionText(w, out)
+	if noop {
+		if _, err := fmt.Fprintf(w, "discussion %s already %s (no-op)\n", detail.ID, discussionActionDoneState(action)); err != nil {
+			return err
+		}
+	} else {
+		if _, err := fmt.Fprintf(w, "%s: discussion %s\n", discussionActionPastTense(action), detail.ID); err != nil {
+			return err
+		}
+	}
+
+	return writeDiscussionDetailText(w, detail, true)
+}
+
+func discussionActionHelp(action string, iid int64, discussionID string, hints *mrHintContext) []string {
+	suffix := hints.projectSuffix()
+	viewHint := fmt.Sprintf("Run `%s %d %s%s` for the full thread", mrDiscussionViewCommandName, iid, shortDiscussionID(discussionID), suffix)
+
+	if action == "resolve" {
+		return []string{
+			viewHint,
+			fmt.Sprintf("Run `mr discussion unresolve %d %s%s` to reopen the thread", iid, shortDiscussionID(discussionID), suffix),
+		}
+	}
+
+	return []string{
+		viewHint,
+		fmt.Sprintf("Run `mr discussion resolve %d %s%s` to resolve the thread", iid, shortDiscussionID(discussionID), suffix),
+	}
+}
+
+func discussionActionPastTense(action string) string {
+	if action == "resolve" {
+		return "resolved"
+	}
+
+	return "unresolved"
+}
+
+func discussionActionDoneState(action string) string {
+	if action == "resolve" {
+		return "resolved"
+	}
+
+	return "unresolved"
 }
 
 func writeDiscussionText(w io.Writer, out discussionViewOutput) error {
-	if _, err := fmt.Fprintf(w, "discussion: %s\nstate: %s\n", out.Discussion.ID, out.Discussion.State); err != nil {
-		return err
-	}
-	if out.Discussion.File != "" {
-		if _, err := fmt.Fprintf(w, "file: %s:%d\n", out.Discussion.File, out.Discussion.Line); err != nil {
-			return err
-		}
-	}
-	if out.Discussion.ResolvedBy != "" || out.Discussion.ResolvedAt != "" {
-		if _, err := fmt.Fprintf(w, "resolved_by: %s\nresolved_at: %s\n", out.Discussion.ResolvedBy, out.Discussion.ResolvedAt); err != nil {
-			return err
-		}
-	}
-	if _, err := fmt.Fprintf(w, "updated_at: %s\nnotes: %d\n", out.Discussion.UpdatedAt, out.Discussion.Notes); err != nil {
+	if err := writeDiscussionDetailText(w, out.Discussion, false); err != nil {
 		return err
 	}
 
@@ -2043,6 +2126,29 @@ func writeMRDiffExport(w io.Writer, format string, mode commandMode, result mrDi
 	}
 
 	return nil
+}
+
+func writeDiscussionDetailText(w io.Writer, detail discussionDetailOutput, includeResolvable bool) error {
+	if _, err := fmt.Fprintf(w, "discussion: %s\nstate: %s\n", detail.ID, detail.State); err != nil {
+		return err
+	}
+	if includeResolvable {
+		if _, err := fmt.Fprintf(w, "resolvable: %t\n", detail.Resolvable); err != nil {
+			return err
+		}
+	}
+	if detail.File != "" {
+		if _, err := fmt.Fprintf(w, "file: %s:%d\n", detail.File, detail.Line); err != nil {
+			return err
+		}
+	}
+	if detail.ResolvedBy != "" || detail.ResolvedAt != "" {
+		if _, err := fmt.Fprintf(w, "resolved_by: %s\nresolved_at: %s\n", detail.ResolvedBy, detail.ResolvedAt); err != nil {
+			return err
+		}
+	}
+	_, err := fmt.Fprintf(w, "updated_at: %s\nnotes: %d\n", detail.UpdatedAt, detail.Notes)
+	return err
 }
 
 // formatLocalTime renders a locally computed time value, treating the zero

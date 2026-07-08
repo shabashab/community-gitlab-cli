@@ -192,6 +192,45 @@ notes[2]{id,author,created_at,updated_at,system,body}:
 - `<discussion-id>` is the full 40-character hex ID (fetched directly) or any unique prefix (resolved against the thread list, case-insensitive). An ambiguous prefix is a usage error (`ambiguous_discussion_ref`, exit 2) stating the match count; a prefix matching nothing is `discussion_not_found` (exit 1). A full ID that does not exist surfaces as the API's `gitlab_not_found`.
 - `file`/`line` appear only for diff threads; `resolved_by`/`resolved_at` only for resolved threads.
 
+## Discussion resolve actions
+
+`gl-axi mr discussion resolve <!iid|iid|current> <discussion-id>` and `gl-axi mr discussion unresolve <!iid|iid|current> <discussion-id>` change a resolvable thread's state. They accept the same full IDs and unique prefixes as the view command.
+
+```
+discussion:
+  id: 6f9a1c2d
+  state: resolved
+  resolvable: true
+  file: internal/cli/mr.go
+  line: 42
+  updated_at: "2026-07-03T12:00:00Z"
+  notes: 2
+action: resolve
+help[2]:
+  Run `mr discussion 123 6f9a1c2d` for the full thread
+  Run `mr discussion unresolve 123 6f9a1c2d` to reopen the thread
+```
+
+Verified no-ops keep exit 0 and include `noop: true`:
+
+```
+discussion:
+  id: aa11bb22
+  state: unresolved
+  resolvable: true
+  updated_at: "2026-07-03T12:00:00Z"
+  notes: 1
+action: unresolve
+noop: true
+help[2]:
+  Run `mr discussion 123 aa11bb22` for the full thread
+  Run `mr discussion resolve 123 aa11bb22` to resolve the thread
+```
+
+- The command reads the thread first so already-resolved/already-unresolved states are reported as verified no-ops without issuing a mutation.
+- Non-resolvable threads (`state: none`, such as system activity or plain notes) fail with `discussion_not_resolvable`, exit 1.
+- In axi mode, `discussion.id` is the 8-character prefix; JSON and standard `gl` output keep the full ID.
+
 ## Merge request diff
 
 `gl-axi mr diff <!iid|iid|current>` returns a compact changed-file summary, not a patch dump:

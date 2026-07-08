@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -653,6 +654,215 @@ func TestMRDiscussionViewRefErrors(t *testing.T) {
 	})
 }
 
+func TestMRDiscussionResolveFullID(t *testing.T) {
+	var getCount, putCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.EscapedPath() {
+		case discussionsListPath + "/" + discussionIDUnresolvedAlice:
+			switch r.Method {
+			case http.MethodGet:
+				getCount++
+				fmt.Fprint(w, discussionJSON(discussionIDUnresolvedAlice,
+					discussionNoteJSON(901, "alice", "Fix this", true, false, false, "2026-07-01T08:00:00Z", "2026-07-01T08:00:00Z"),
+				))
+			case http.MethodPut:
+				putCount++
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Errorf("decode resolve body: %v", err)
+				}
+				if got := body["resolved"]; got != true {
+					t.Errorf("expected resolved=true body, got %#v", body)
+				}
+				fmt.Fprint(w, discussionJSON(discussionIDUnresolvedAlice,
+					discussionNoteJSON(901, "alice", "Fix this", true, true, false, "2026-07-01T08:00:00Z", "2026-07-02T08:00:00Z"),
+				))
+			default:
+				t.Errorf("unexpected method %s", r.Method)
+				w.WriteHeader(http.StatusMethodNotAllowed)
+			}
+		default:
+			t.Errorf("unexpected request path %s", r.URL.EscapedPath())
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	got, err := executeDiscussionCommand(t, commandModeAxi, server.URL, "mr", "discussion", "resolve", "123", discussionIDUnresolvedAlice)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if getCount != 1 || putCount != 1 {
+		t.Fatalf("expected one GET and one PUT, got get=%d put=%d", getCount, putCount)
+	}
+	for _, want := range []string{"discussion:", "id: 6f9a1c2d", "state: resolved", "action: resolve"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected output to contain %q, got:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "noop: true") {
+		t.Errorf("resolve mutation should not be marked noop, got:\n%s", got)
+	}
+}
+
+func TestMRDiscussionUnresolveShortPrefix(t *testing.T) {
+	var putCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.EscapedPath() {
+		case discussionsListPath:
+			if r.Method != http.MethodGet {
+				t.Errorf("expected list GET, got %s", r.Method)
+			}
+			fmt.Fprint(w, discussionListStubJSON())
+		case discussionsListPath + "/" + discussionIDResolved:
+			if r.Method != http.MethodPut {
+				t.Errorf("expected resolve PUT, got %s", r.Method)
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			putCount++
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("decode unresolve body: %v", err)
+			}
+			if got := body["resolved"]; got != false {
+				t.Errorf("expected resolved=false body, got %#v", body)
+			}
+			fmt.Fprint(w, discussionJSON(discussionIDResolved,
+				discussionNoteJSON(904, "mona", "Typo", true, false, false, "2026-06-30T08:00:00Z", "2026-07-02T08:00:00Z"),
+			))
+		default:
+			t.Errorf("unexpected request path %s", r.URL.EscapedPath())
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	got, err := executeDiscussionCommand(t, commandModeAxi, server.URL, "mr", "discussion", "unresolve", "123", "aa11")
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if putCount != 1 {
+		t.Fatalf("expected one PUT, got %d", putCount)
+	}
+	for _, want := range []string{"id: aa11bb22", "state: unresolved", "action: unresolve"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected output to contain %q, got:\n%s", want, got)
+		}
+	}
+}
+
+func TestMRDiscussionResolveNoops(t *testing.T) {
+	cases := []struct {
+		name       string
+		action     string
+		id         string
+		note       string
+		putCount   int
+		wantState  string
+		wantAction string
+	}{
+		{
+			name:       "resolve already resolved",
+			action:     "resolve",
+			id:         discussionIDResolved,
+			note:       discussionNoteJSON(904, "mona", "Typo", true, true, false, "2026-06-30T08:00:00Z", "2026-07-01T08:00:00Z"),
+			wantState:  "resolved",
+			wantAction: "resolve",
+		},
+		{
+			name:       "unresolve already unresolved",
+			action:     "unresolve",
+			id:         discussionIDUnresolvedAlice,
+			note:       discussionNoteJSON(901, "alice", "Fix this", true, false, false, "2026-07-01T08:00:00Z", "2026-07-01T08:00:00Z"),
+			wantState:  "unresolved",
+			wantAction: "unresolve",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var putCount int
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.EscapedPath() {
+				case discussionsListPath + "/" + tc.id:
+					if r.Method == http.MethodPut {
+						putCount++
+						t.Errorf("no-op should not call PUT")
+						w.WriteHeader(http.StatusInternalServerError)
+						return
+					}
+					if r.Method != http.MethodGet {
+						t.Errorf("expected GET, got %s", r.Method)
+					}
+					fmt.Fprint(w, discussionJSON(tc.id, tc.note))
+				default:
+					t.Errorf("unexpected request path %s", r.URL.EscapedPath())
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			t.Cleanup(server.Close)
+
+			got, err := executeDiscussionCommand(t, commandModeAxi, server.URL, "mr", "discussion", tc.action, "123", tc.id)
+			if err != nil {
+				t.Fatalf("Execute returned error: %v", err)
+			}
+			if putCount != tc.putCount {
+				t.Errorf("expected %d PUT calls, got %d", tc.putCount, putCount)
+			}
+			for _, want := range []string{"noop: true", "state: " + tc.wantState, "action: " + tc.wantAction} {
+				if !strings.Contains(got, want) {
+					t.Errorf("expected output to contain %q, got:\n%s", want, got)
+				}
+			}
+		})
+	}
+}
+
+func TestMRDiscussionResolveNonResolvable(t *testing.T) {
+	var putCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.EscapedPath() {
+		case discussionsListPath + "/" + discussionIDSystem:
+			if r.Method == http.MethodPut {
+				putCount++
+				t.Errorf("non-resolvable thread should not call PUT")
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			fmt.Fprint(w, discussionJSON(discussionIDSystem,
+				discussionNoteJSON(905, "alice", "added 3 commits", false, false, true, "2026-07-05T08:00:00Z", "2026-07-05T08:00:00Z"),
+			))
+		default:
+			t.Errorf("unexpected request path %s", r.URL.EscapedPath())
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	_, err := executeDiscussionCommand(t, commandModeAxi, server.URL, "mr", "discussion", "resolve", "123", discussionIDSystem)
+	if !errors.Is(err, errDiscussionNotResolvable) {
+		t.Fatalf("expected errDiscussionNotResolvable, got %v", err)
+	}
+	if exitCodeForError(err) != 1 {
+		t.Errorf("expected exit code 1, got %d", exitCodeForError(err))
+	}
+	if putCount != 0 {
+		t.Errorf("expected no PUT calls, got %d", putCount)
+	}
+
+	var out bytes.Buffer
+	writeCommandError(&out, commandModeAxi, "toon", "gl-axi", err)
+	if !strings.Contains(out.String(), "code: discussion_not_resolvable") {
+		t.Errorf("expected discussion_not_resolvable code, got:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), server.URL) {
+		t.Errorf("server URL must not leak into agent-facing errors:\n%s", out.String())
+	}
+}
+
 func TestWriteDiscussionListStandardModes(t *testing.T) {
 	created := discussionTestTime(t, "2026-07-01T08:00:00Z")
 	updated := discussionTestTime(t, "2026-07-03T12:00:00Z")
@@ -712,6 +922,50 @@ func TestWriteDiscussionListStandardModes(t *testing.T) {
 	})
 }
 
+func TestWriteDiscussionActionStandardModes(t *testing.T) {
+	created := discussionTestTime(t, "2026-07-01T08:00:00Z")
+	updated := discussionTestTime(t, "2026-07-02T08:00:00Z")
+	discussion := &gitlab.Discussion{
+		ID: discussionIDResolved,
+		Notes: []*gitlab.Note{
+			{
+				ID:         904,
+				Author:     gitlab.NoteAuthor{Username: "mona"},
+				Body:       "Typo",
+				Type:       gitlab.DiscussionNote,
+				Resolvable: true,
+				Resolved:   true,
+				CreatedAt:  &created,
+				UpdatedAt:  &updated,
+			},
+		},
+	}
+
+	t.Run("text", func(t *testing.T) {
+		var out bytes.Buffer
+		if err := writeDiscussionAction(&out, "text", commandModeStandard, discussion, "resolve", true, 123, nil); err != nil {
+			t.Fatalf("writeDiscussionAction returned error: %v", err)
+		}
+		for _, want := range []string{"already resolved (no-op)", "discussion: " + discussionIDResolved, "resolvable: true"} {
+			if !strings.Contains(out.String(), want) {
+				t.Errorf("expected text output to contain %q, got:\n%s", want, out.String())
+			}
+		}
+	})
+
+	t.Run("json", func(t *testing.T) {
+		var out bytes.Buffer
+		if err := writeDiscussionAction(&out, "json", commandModeStandard, discussion, "resolve", false, 123, nil); err != nil {
+			t.Fatalf("writeDiscussionAction returned error: %v", err)
+		}
+		for _, want := range []string{`"discussion": {`, fmt.Sprintf("%q", discussionIDResolved), `"action": "resolve"`} {
+			if !strings.Contains(out.String(), want) {
+				t.Errorf("expected json output to contain %q, got:\n%s", want, out.String())
+			}
+		}
+	})
+}
+
 func TestMRDiscussionsCurrentRef(t *testing.T) {
 	newServer := func(t *testing.T) *httptest.Server {
 		t.Helper()
@@ -760,6 +1014,50 @@ func TestMRDiscussionsCurrentRef(t *testing.T) {
 			t.Errorf("expected the thread of the resolved merge request, got:\n%s", got)
 		}
 	})
+
+	t.Run("discussion resolve current changes a thread", func(t *testing.T) {
+		stubCurrentBranch(t, "feature/search", nil)
+		var putCount int
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.EscapedPath() {
+			case "/api/v4/projects/group%2Fproject/merge_requests":
+				if got := r.URL.Query().Get("source_branch"); got != "feature/search" {
+					t.Errorf("expected current-branch lookup, got source_branch=%q", got)
+				}
+				fmt.Fprint(w, "["+mergeRequestJSON(123, "short description")+"]")
+			case discussionsListPath + "/" + discussionIDUnresolvedAlice:
+				switch r.Method {
+				case http.MethodGet:
+					fmt.Fprint(w, discussionJSON(discussionIDUnresolvedAlice,
+						discussionNoteJSON(901, "alice", "Fix this", true, false, false, "2026-07-01T08:00:00Z", "2026-07-01T08:00:00Z"),
+					))
+				case http.MethodPut:
+					putCount++
+					fmt.Fprint(w, discussionJSON(discussionIDUnresolvedAlice,
+						discussionNoteJSON(901, "alice", "Fix this", true, true, false, "2026-07-01T08:00:00Z", "2026-07-02T08:00:00Z"),
+					))
+				default:
+					t.Errorf("unexpected method %s", r.Method)
+					w.WriteHeader(http.StatusMethodNotAllowed)
+				}
+			default:
+				t.Errorf("unexpected request path %s", r.URL.EscapedPath())
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		t.Cleanup(server.Close)
+
+		got, err := executeDiscussionCommand(t, commandModeAxi, server.URL, "mr", "discussion", "resolve", "current", discussionIDUnresolvedAlice)
+		if err != nil {
+			t.Fatalf("Execute returned error: %v", err)
+		}
+		if putCount != 1 {
+			t.Errorf("expected one PUT, got %d", putCount)
+		}
+		if !strings.Contains(got, "action: resolve") || !strings.Contains(got, "state: resolved") {
+			t.Errorf("expected resolved action output, got:\n%s", got)
+		}
+	})
 }
 
 func TestMRParentDispatchDiscussionsRedirects(t *testing.T) {
@@ -773,7 +1071,7 @@ func TestMRParentDispatchDiscussionsRedirects(t *testing.T) {
 
 	var out bytes.Buffer
 	writeCommandError(&out, commandModeAxi, "toon", "gl-axi", err)
-	if !strings.Contains(out.String(), "mr discussions !123") {
+	if !strings.Contains(out.String(), "mr discussions !123") || !strings.Contains(out.String(), "mr discussion resolve !123") {
 		t.Errorf("expected redirect hint to the subcommand, got:\n%s", out.String())
 	}
 }
