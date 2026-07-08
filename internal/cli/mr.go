@@ -112,6 +112,18 @@ source branch is the currently checked out git branch.`,
 			switch action {
 			case "view", "info":
 				return runMRView(cmd, rootOpts, projOpts, viewOpts, iid)
+			case "approvals", "approval":
+				return runMRApprovals(cmd, rootOpts, projOpts, &mrApprovalsOptions{full: viewOpts.full}, iid)
+			case "approve":
+				return newUsageError(
+					fmt.Errorf("mr !%d approve takes flags and runs as a subcommand", iid),
+					fmt.Sprintf("Run `mr approve !%d` — pass `--sha <sha>` if you need an optimistic head check", iid),
+				)
+			case "unapprove":
+				return newUsageError(
+					fmt.Errorf("mr !%d unapprove runs as a subcommand", iid),
+					fmt.Sprintf("Run `mr unapprove !%d` to remove your approval", iid),
+				)
 			case "diff", "changes":
 				return runMRDiff(cmd, rootOpts, projOpts, newMRDiffListOptions(), iid)
 			case "update":
@@ -136,7 +148,7 @@ source branch is the currently checked out git branch.`,
 				)
 			default:
 				return newUsageError(fmt.Errorf(
-					"%w %q for merge request !%d: supported actions: view (alias: info), diff, update (as `mr update !<iid>`), discussions (as `mr discussions !<iid>`), comment (as `mr comment !<iid>`), drafts (as `mr drafts !<iid>`)",
+					"%w %q for merge request !%d: supported actions: view (alias: info), approvals, approve (as `mr approve !<iid>`), unapprove (as `mr unapprove !<iid>`), diff, update (as `mr update !<iid>`), discussions (as `mr discussions !<iid>`), comment (as `mr comment !<iid>`), drafts (as `mr drafts !<iid>`)",
 					errUnknownMergeRequestAction,
 					action,
 					iid,
@@ -162,6 +174,9 @@ source branch is the currently checked out git branch.`,
 	cmd.AddCommand(newMRViewCommand(rootOpts, projOpts))
 	cmd.AddCommand(newMRCreateCommand(rootOpts, projOpts))
 	cmd.AddCommand(newMRUpdateCommand(rootOpts, projOpts))
+	cmd.AddCommand(newMRApprovalsCommand(rootOpts, projOpts))
+	cmd.AddCommand(newMRApproveCommand(rootOpts, projOpts))
+	cmd.AddCommand(newMRUnapproveCommand(rootOpts, projOpts))
 	cmd.AddCommand(newMRDiscussionsCommand(rootOpts, projOpts))
 	cmd.AddCommand(newMRDiscussionCommand(rootOpts, projOpts))
 	cmd.AddCommand(newMRCommentCommand(rootOpts, projOpts))
@@ -401,10 +416,14 @@ func runMRView(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOptio
 	if err != nil {
 		return fmt.Errorf("get merge request !%d in project %q: %w", iid, resolved.ref, err)
 	}
+	approvals, err := fetchMergeRequestApprovals(cmd, client, resolved.ref, iid)
+	if err != nil {
+		return err
+	}
 
 	hints := &mrHintContext{project: explicitProjectRef(projOpts)}
 
-	return writeMergeRequest(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, mergeRequest, opts.full, hints)
+	return writeMergeRequestWithApprovals(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, mergeRequest, approvals, opts.full, hints)
 }
 
 func runMRList(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOptions, opts *mrListOptions) error {

@@ -193,14 +193,31 @@ gl mr '!123'                   # show one merge request (compact fields)
 gl mr 123 --full               # all fields and the complete description
 gl mr view '!123'              # explicit subcommand form, same behavior
 gl mr current                  # the MR of the currently checked out branch
+gl mr approvals 123            # approval status for one merge request
+gl mr approve 123 --sha f5b0c3d2e1
+gl mr unapprove 123
 ```
 
 - `gl mr list` renders a table; `--output json` returns `{merge_requests, count, total, page, total_pages}`.
-- Merge request descriptions are truncated by default with an explicit size marker; pass `--full` for the complete body and all fields. The axi view suggests `--full` only when something was actually truncated.
+- Merge request descriptions are truncated by default with an explicit size marker; pass `--full` for the complete body and all fields. The view includes approval status by default (`approved`, `approvals_required`, `approvals_left`, `user_has_approved`, `user_can_approve`, `approved_by`). The axi view suggests `--full` only when something was actually truncated.
 - `gl-axi mr` prints compact TOON rows (`iid,title,state,author` by default) with a definitive `count: N of M total` line and `help[]` hints for the next step (view command, next page when one exists, filter relaxation on empty results). Hints carry an explicit `--project` forward when one was passed.
 - `gl-axi mr list --fields draft,source_branch,target_branch,updated_at,web_url` adds columns to the compact schema; unknown field names are rejected with the valid set inline.
 - List filters: `--state`, `--search`, `--label`, `--author`, `--reviewer`, `--source-branch`, `--target-branch`, `--draft`, `--milestone`, `--order-by`, `--sort`, `--limit`, `--page`.
 - The `current` ref matches open merge requests only and fails loud (exit 1) instead of guessing: no match is `no_current_merge_request`, several matches (same source branch, different targets) is `ambiguous_current_merge_request` with the candidate iids listed, and an unresolvable branch (detached HEAD, outside a repository) is `missing_current_branch`.
+
+### Approving merge requests
+
+```sh
+gl mr approvals 123            # compact approval status
+gl mr approvals 123 --full     # approval rules and approver metadata
+gl mr approve 123              # approve as the authenticated user
+gl mr approve 123 --sha f5b0c3d2e1   # approve only if the MR head still matches
+gl mr unapprove 123            # remove your approval, then refresh status
+```
+
+- `mr approvals <!iid|iid|current>` shows approval readiness: required approvals, approvals left, whether you can approve, whether you already approved, and users who have approved.
+- `--full` adds approval configuration metadata, suggested approvers, configured approvers and groups, and approval rules still left.
+- `mr approve` and `mr unapprove` return the resulting compact approval status; `mr unapprove` performs a follow-up status read because GitLab's unapprove endpoint has no response body.
 
 ### Creating merge requests
 

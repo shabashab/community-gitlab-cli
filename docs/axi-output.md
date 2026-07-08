@@ -54,9 +54,10 @@ Inside a GitLab repository the content is the project's open merge requests (up 
 
 ## Merge request view
 
-`gl-axi mr <iid>` returns a compact detail view: `iid, title, state, draft, author, source_branch, target_branch, detailed_merge_status, has_conflicts, pipeline_status, user_notes_count, updated_at, web_url, description`.
+`gl-axi mr <iid>` returns a compact detail view: `iid, title, state, draft, author, source_branch, target_branch, detailed_merge_status, has_conflicts, pipeline_status, user_notes_count, updated_at, web_url, approval, description`.
 
 - The description is truncated at 500 runes with an explicit size marker: `… (truncated, 8432 chars total)`.
+- The nested `approval:` summary is fetched by default and includes `approved`, `approvals_required`, `approvals_left`, `user_has_approved`, `user_can_approve`, and `approved_by[]`.
 - When (and only when) truncation happened, a hint suggests the escape hatch: `help[1]: Run `mr view 42 --full` for the complete description and all fields`.
 - `--full` returns every field (assignees, reviewers, labels, milestone, changes_count, sha, timestamps, ...) and the complete description, with no hints — the view is self-contained.
 - String lists (assignees, reviewers, labels) are TOON inline arrays: `labels[2]: backend,search`.
@@ -93,6 +94,28 @@ help[1]: Run `mr view 42` to check merge status and pipeline results
 - Booleans (`--squash`, `--remove-source-branch`, `--allow-collaboration`, `--discussion-locked`) are sent only when passed; `--squash=false` sends an explicit `false`.
 - Description is dual-input per the content-flags convention: `--description <text>` inline, or `--description-file <path>` (`-` reads stdin).
 - The source branch and cross-fork target project cannot be changed after creation; the update API has no such fields.
+
+## Merge request approvals
+
+`gl-axi mr approvals <!iid|iid|current>` returns compact approval status:
+
+```
+approval:
+  iid: 42
+  approved: false
+  approvals_required: 2
+  approvals_left: 1
+  user_has_approved: true
+  user_can_approve: false
+  approved_by[1]{username,approved_at}:
+    alice,"2026-07-04T10:00:00Z"
+```
+
+- `mr <iid> approvals` is a parent-dispatch alias for `mr approvals <iid>`; `mr approval <iid>` is also accepted.
+- `--full` adds approval configuration metadata, suggested approvers, configured approvers/groups, and approval rules still left.
+- `mr approve <iid>` approves as the authenticated user and returns compact approval status plus a `mr view <iid>` next-step hint.
+- `mr approve <iid> --sha <sha>` sends GitLab's optimistic guard and approves only when the merge request head still matches that SHA. Empty `--sha` is a usage error.
+- `mr unapprove <iid>` removes your approval and then refreshes approval status because GitLab's unapprove endpoint has no response body.
 
 ## Merge request discussions
 

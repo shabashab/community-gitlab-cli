@@ -41,15 +41,23 @@ func TestParseMergeRequestRef(t *testing.T) {
 }
 
 func TestRunMRViewFetchesMergeRequest(t *testing.T) {
-	var gotPath string
+	var gotPaths []string
 	var gotToken string
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.EscapedPath()
+		gotPaths = append(gotPaths, r.URL.EscapedPath())
 		gotToken = r.Header.Get("Private-Token")
 
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, mergeRequestJSON(123, "short description"))
+		switch r.URL.EscapedPath() {
+		case "/api/v4/projects/group%2Fproject/merge_requests/123":
+			fmt.Fprint(w, mergeRequestJSON(123, "short description"))
+		case "/api/v4/projects/group%2Fproject/merge_requests/123/approvals":
+			fmt.Fprint(w, mergeRequestApprovalsJSON(123))
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.EscapedPath())
+			w.WriteHeader(http.StatusNotFound)
+		}
 	}))
 	defer server.Close()
 
@@ -66,14 +74,21 @@ func TestRunMRViewFetchesMergeRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runMRView returned error: %v", err)
 	}
-	if gotPath != "/api/v4/projects/group%2Fproject/merge_requests/123" {
-		t.Fatalf("request path = %q, want /api/v4/projects/group%%2Fproject/merge_requests/123", gotPath)
+	wantPaths := []string{
+		"/api/v4/projects/group%2Fproject/merge_requests/123",
+		"/api/v4/projects/group%2Fproject/merge_requests/123/approvals",
+	}
+	if fmt.Sprint(gotPaths) != fmt.Sprint(wantPaths) {
+		t.Fatalf("request paths = %v, want %v", gotPaths, wantPaths)
 	}
 	if gotToken != "test-token" {
 		t.Fatalf("Private-Token header = %q, want test-token", gotToken)
 	}
 	if !bytes.Contains(out.Bytes(), []byte(`"iid": 123`)) {
 		t.Fatalf("runMRView output = %q, want iid fragment", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte(`"approvals_left": 1`)) {
+		t.Fatalf("runMRView output = %q, want approval status fragment", out.String())
 	}
 }
 
@@ -141,19 +156,30 @@ func TestRunMRListSendsFilterParams(t *testing.T) {
 }
 
 func TestMRCommandDispatchesBangRef(t *testing.T) {
-	var gotPath string
+	gotPaths := map[string]bool{}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.EscapedPath()
+		gotPaths[r.URL.EscapedPath()] = true
 
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, mergeRequestJSON(123, "short description"))
+		switch r.URL.EscapedPath() {
+		case "/api/v4/projects/group%2Fproject/merge_requests/123":
+			fmt.Fprint(w, mergeRequestJSON(123, "short description"))
+		case "/api/v4/projects/group%2Fproject/merge_requests/123/approvals":
+			fmt.Fprint(w, mergeRequestApprovalsJSON(123))
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.EscapedPath())
+			w.WriteHeader(http.StatusNotFound)
+		}
 	}))
 	defer server.Close()
 
 	out := executeMRRootCommand(t, server.URL, "!123")
-	if gotPath != "/api/v4/projects/group%2Fproject/merge_requests/123" {
-		t.Fatalf("request path = %q, want single merge request path", gotPath)
+	if !gotPaths["/api/v4/projects/group%2Fproject/merge_requests/123"] {
+		t.Fatalf("request paths = %v, want single merge request path", gotPaths)
+	}
+	if !gotPaths["/api/v4/projects/group%2Fproject/merge_requests/123/approvals"] {
+		t.Fatalf("request paths = %v, want approval status path", gotPaths)
 	}
 	if !strings.Contains(out, `"iid": 123`) {
 		t.Fatalf("output = %q, want iid fragment", out)
@@ -161,19 +187,30 @@ func TestMRCommandDispatchesBangRef(t *testing.T) {
 }
 
 func TestMRCommandDispatchesPlainIID(t *testing.T) {
-	var gotPath string
+	gotPaths := map[string]bool{}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.EscapedPath()
+		gotPaths[r.URL.EscapedPath()] = true
 
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, mergeRequestJSON(123, "short description"))
+		switch r.URL.EscapedPath() {
+		case "/api/v4/projects/group%2Fproject/merge_requests/123":
+			fmt.Fprint(w, mergeRequestJSON(123, "short description"))
+		case "/api/v4/projects/group%2Fproject/merge_requests/123/approvals":
+			fmt.Fprint(w, mergeRequestApprovalsJSON(123))
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.EscapedPath())
+			w.WriteHeader(http.StatusNotFound)
+		}
 	}))
 	defer server.Close()
 
 	executeMRRootCommand(t, server.URL, "123")
-	if gotPath != "/api/v4/projects/group%2Fproject/merge_requests/123" {
-		t.Fatalf("request path = %q, want single merge request path", gotPath)
+	if !gotPaths["/api/v4/projects/group%2Fproject/merge_requests/123"] {
+		t.Fatalf("request paths = %v, want single merge request path", gotPaths)
+	}
+	if !gotPaths["/api/v4/projects/group%2Fproject/merge_requests/123/approvals"] {
+		t.Fatalf("request paths = %v, want approval status path", gotPaths)
 	}
 }
 
@@ -339,6 +376,8 @@ func newMRCurrentTestServer(t *testing.T, listBody string) (*httptest.Server, *u
 		case "/api/v4/projects/group%2Fproject/merge_requests/123":
 			viewPath = r.URL.EscapedPath()
 			fmt.Fprint(w, mergeRequestJSON(123, "short description"))
+		case "/api/v4/projects/group%2Fproject/merge_requests/123/approvals":
+			fmt.Fprint(w, mergeRequestApprovalsJSON(123))
 		default:
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.EscapedPath())
 			w.WriteHeader(http.StatusNotFound)
@@ -879,4 +918,41 @@ func mergeRequestJSON(iid int64, description string) string {
 		"updated_at": "2026-07-03T12:00:00Z",
 		"web_url": "https://gitlab.example/group/project/-/merge_requests/%d"
 	}`, 1000+iid, iid, description, iid)
+}
+
+func mergeRequestApprovalsJSON(iid int64) string {
+	return fmt.Sprintf(`{
+		"id": %d,
+		"iid": %d,
+		"project_id": 42,
+		"title": "Add search endpoint",
+		"state": "opened",
+		"merge_status": "can_be_merged",
+		"approved": false,
+		"approvals_before_merge": 2,
+		"approvals_required": 2,
+		"approvals_left": 1,
+		"require_password_to_approve": false,
+		"approved_by": [
+			{"user": {"id": 1, "username": "alice", "name": "Alice"}, "approved_at": "2026-07-04T10:00:00Z"}
+		],
+		"suggested_approvers": [
+			{"id": 2, "username": "mona", "name": "Mona"}
+		],
+		"approvers": [
+			{"user": {"id": 1, "username": "alice", "name": "Alice"}, "approved_at": "2026-07-04T10:00:00Z"},
+			{"user": {"id": 3, "username": "hubot", "name": "Hubot"}}
+		],
+		"approver_groups": [
+			{"group": {"id": 4, "name": "Security", "full_path": "platform/security"}}
+		],
+		"user_has_approved": true,
+		"user_can_approve": false,
+		"approval_rules_left": [
+			{"id": 7, "name": "Security", "rule_type": "regular", "approvals_required": 1, "approved": false, "approved_by": [{"username": "alice"}]}
+		],
+		"has_approval_rules": true,
+		"merge_request_approvers_available": true,
+		"multiple_approval_rules_available": true
+	}`, 1000+iid, iid)
 }
