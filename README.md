@@ -235,6 +235,21 @@ gl mr update current --ready                   # update the current branch's MR
 - Boolean flags (`--squash`, `--remove-source-branch`, `--allow-collaboration`, `--discussion-locked`) are sent only when explicitly passed; the `=false` form sends an explicit disable.
 - The source branch and cross-fork target project cannot be changed after creation.
 
+### Merge request discussions
+
+```sh
+gl mr discussions 123                                # unresolved review threads
+gl mr discussions current --state all --system       # every thread, incl. system activity
+gl mr discussions 123 --order-by updated_at --sort desc   # what has news?
+gl mr discussions 123 --author @alice --fields file,line,id_full
+gl mr discussion 123 6f9a1c2d                        # full conversation of one thread
+```
+
+- `mr discussions <!iid|iid|current>` lists the discussion threads of a merge request. **Unresolved threads only by default** — pass `--state all|resolved` to widen. `--author` filters by the thread starter's username (optional `@`, case-insensitive); `--system` includes system-generated activity, which is hidden by default. Non-resolvable threads (standalone comments, system notes) have state `none` and match only `--state all`.
+- The GitLab discussions API has no server-side filters or sorting, so the CLI fetches the complete thread list and filters, sorts (`--order-by created_at|updated_at`, `--sort asc|desc`), and pages (`--limit`, `--page`) client-side — totals are always exact. A thread's `updated_at` is the newest note update in it, so `--order-by updated_at --sort desc` surfaces threads with recent activity first.
+- Thread IDs are 40-character hex strings; lists show the 8-character prefix and every command accepts any unique prefix (ambiguous prefixes fail with the match count, exit 2). `gl-axi` rows are `id,author,state,notes,updated_at,preview` with `--fields type,file,line,created_at,id_full` extras; `gl` renders a table, `--output json` returns `{discussions, count, total, page, total_pages}` with full IDs.
+- `mr discussion <!iid|iid|current> <discussion-id>` prints one thread's full conversation — every note with its complete body, author, timestamps, and, for diff threads, the file and line the thread is anchored to.
+
 ## Agent Session Integrations (gl-axi)
 
 `gl-axi setup hooks` installs SessionStart integrations so agent sessions start with ambient GitLab context — the open merge requests of the repository the session starts in:

@@ -49,6 +49,9 @@ gl-axi mr create --title "Fix auth" --description-file - < notes.md
 gl-axi mr update 123 --title "Fix auth v2" --ready
 gl-axi mr update 123 --add-label bug --assignee mona
 gl-axi mr update current --ready
+gl-axi mr discussions 123                          # unresolved review threads
+gl-axi mr discussions current --order-by updated_at --sort desc
+gl-axi mr discussion 123 6f9a1c2d                  # full conversation of one thread
 ```
 
 - List rows default to `iid,title,state,author`; `--fields` adds
@@ -67,11 +70,21 @@ gl-axi mr update current --ready
   prefix; `--label` replaces all labels while `--add-label`/`--remove-label`
   adjust incrementally; explicitly empty values clear (`--description ""`,
   `--assignee ""`, `--milestone-id 0`). No flags at all is a usage error.
-- The ref `current` (view and update) resolves via the current git branch to
-  its open MR. Open MRs only; zero or multiple matches fail loud (exit 1,
-  codes `no_current_merge_request` / `ambiguous_current_merge_request` with
-  candidates listed), as does an unresolvable branch
-  (`missing_current_branch`).
+- The ref `current` (view, update, discussions, discussion) resolves via the
+  current git branch to its open MR. Open MRs only; zero or multiple matches
+  fail loud (exit 1, codes `no_current_merge_request` /
+  `ambiguous_current_merge_request` with candidates listed), as does an
+  unresolvable branch (`missing_current_branch`).
+- `mr discussions <iid>` lists review threads as
+  `id,author,state,notes,updated_at,preview` rows — **unresolved only by
+  default**; `--state all|resolved` widens, `--author <user>` filters by
+  thread starter, `--system` includes system activity. `--order-by updated_at
+  --sort desc` surfaces threads with news; `--fields` adds
+  `type,file,line,created_at,id_full`. Filtering is client-side, so
+  `count: N of M total` is always exact.
+- `mr discussion <iid> <id>` prints one thread with complete note bodies.
+  `<id>` is the 8-char id from the list (any unique prefix works) or the full
+  40-char ID.
 
 ## Auth
 

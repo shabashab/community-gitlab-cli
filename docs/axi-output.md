@@ -94,6 +94,48 @@ help[1]: Run `mr view 42` to check merge status and pipeline results
 - Description is dual-input per the content-flags convention: `--description <text>` inline, or `--description-file <path>` (`-` reads stdin).
 - The source branch and cross-fork target project cannot be changed after creation; the update API has no such fields.
 
+## Merge request discussions
+
+`gl-axi mr discussions <!iid|iid|current>` lists the discussion threads of one merge request as compact rows with the default schema `id,author,state,notes,updated_at,preview`:
+
+```
+discussions[2]{id,author,state,notes,updated_at,preview}:
+  6f9a1c2d,alice,unresolved,2,"2026-07-03T12:00:00Z",This branch check looks inverted. See the loop above.
+  aa11bb22,mona,resolved,1,"2026-07-01T08:00:00Z",Typo in the docstring
+count: 2 of 2 total
+help[1]: Run `mr discussion 123 <id>` for the full conversation
+```
+
+- The default schema is six columns — a documented deviation from the 3–4 guideline: threads have no title, so the flattened 80-rune `preview` of the first note is the title-equivalent, and `updated_at` (the newest note update in the thread) is the whole point of the command: spotting threads with news.
+- `id` is the lowercase 8-character prefix of the 40-character discussion ID; every command that takes a discussion ID accepts any unique prefix. `--fields type,file,line,created_at,id_full` adds columns (comma-separated, any subset), including the full ID.
+- `state` is `resolved`, `unresolved`, or `none` for threads that are not resolvable (standalone comments, system activity).
+- **The GitLab discussions API has no server-side filters or sorting**, so the CLI fetches the complete thread list and filters, sorts, and pages client-side. Totals in `count: N of M total` are therefore always exact (`M` = threads matching the filters).
+- Filters: `--state all|resolved|unresolved` (**default `unresolved`** — the actionable set; `unresolved` means resolvable and not resolved, so `none` threads match only `all`), `--author <username>` (thread starter, optional `@`, case-insensitive), and `--system` to include system-generated discussions (hidden by default).
+- Sorting: `--order-by created_at|updated_at` plus `--sort asc|desc` (default `created_at asc`, the API order). `--order-by updated_at --sort desc` answers "what changed most recently?".
+- Paging: `--limit` (default 20) and `--page` apply to the filtered result. Next-page hints re-emit every non-default filter flag so the suggested command is runnable as-is.
+- Empty results are explicit (`discussions[0]:` + `count: 0 of 0 total`) with a filter-relaxation hint; when system discussions were excluded, a second hint states how many.
+
+## Discussion thread view
+
+`gl-axi mr discussion <!iid|iid|current> <discussion-id>` prints one full conversation: a `discussion:` object followed by a `notes[N]:` tabular array with **complete note bodies** — this command is the escape hatch, so nothing is truncated and no hints are emitted (the view is self-contained).
+
+```
+discussion:
+  id: 6f9a1c2d0e5b7a9c1d2e3f4a5b6c7d8e9f0a1b2c
+  state: unresolved
+  resolvable: true
+  file: internal/cli/mr.go
+  line: 42
+  updated_at: "2026-07-03T12:00:00Z"
+  notes: 2
+notes[2]{id,author,created_at,updated_at,system,body}:
+  901,alice,"2026-07-01T08:00:00Z","2026-07-03T12:00:00Z",false,"This branch check looks inverted.\nSee the loop above."
+  902,bob,"2026-07-02T09:00:00Z","2026-07-02T09:00:00Z",false,Agreed - needs a fix
+```
+
+- `<discussion-id>` is the full 40-character hex ID (fetched directly) or any unique prefix (resolved against the thread list, case-insensitive). An ambiguous prefix is a usage error (`ambiguous_discussion_ref`, exit 2) stating the match count; a prefix matching nothing is `discussion_not_found` (exit 1). A full ID that does not exist surfaces as the API's `gitlab_not_found`.
+- `file`/`line` appear only for diff threads; `resolved_by`/`resolved_at` only for resolved threads.
+
 ## Auth and project outputs
 
 - `auth login` → `login:` object plus hints for the next step.
