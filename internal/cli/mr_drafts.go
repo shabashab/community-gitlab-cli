@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/shabashab/community-gitlab-cli/internal/cli/output"
 	"github.com/spf13/cobra"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
@@ -28,7 +29,7 @@ type mrDraftListOptions struct {
 }
 
 func newMRDraftsCommand(rootOpts *rootOptions, projOpts *projectOptions) *cobra.Command {
-	opts := &mrDraftListOptions{limit: defaultMergeRequestListLimit, page: 1}
+	opts := &mrDraftListOptions{limit: output.DefaultMergeRequestListLimit, page: 1}
 	var fieldsFlag string
 
 	cmd := &cobra.Command{
@@ -184,18 +185,18 @@ func runMRDraftList(cmd *cobra.Command, rootOpts *rootOptions, projOpts *project
 		return err
 	}
 
-	outputs := make([]draftNoteOutput, 0, len(drafts))
+	outputs := make([]output.DraftNoteOutput, 0, len(drafts))
 	for _, draft := range drafts {
 		if draft == nil {
 			continue
 		}
-		outputs = append(outputs, draftNoteToOutput(draft))
+		outputs = append(outputs, output.DraftNoteToOutput(draft))
 	}
 
 	rows, paging := pageDraftNotes(outputs, opts.page, opts.limit)
-	hints := &mrHintContext{project: explicitProjectRef(projOpts), limit: opts.limit}
+	hints := &output.MRHintContext{Project: explicitProjectRef(projOpts), Limit: opts.limit}
 
-	return writeDraftNoteList(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, rows, paging, opts.fields, iid, hints)
+	return output.WriteDraftNoteList(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, rows, paging, opts.fields, iid, hints)
 }
 
 func runMRDraftsPublishOne(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOptions, iid, id int64) error {
@@ -209,7 +210,7 @@ func runMRDraftsPublishOne(cmd *cobra.Command, rootOpts *rootOptions, projOpts *
 		return err
 	}
 
-	hints := &mrHintContext{project: explicitProjectRef(projOpts)}
+	hints := &output.MRHintContext{Project: explicitProjectRef(projOpts)}
 
 	if _, err := client.DraftNotes.PublishDraftNote(resolved.ref, iid, id, gitlab.WithContext(commandContext(cmd))); err != nil {
 		return draftNoteAPIError(
@@ -221,7 +222,7 @@ func runMRDraftsPublishOne(cmd *cobra.Command, rootOpts *rootOptions, projOpts *
 		)
 	}
 
-	return writeDraftNotesPublished(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, draftPublishResult{ID: &id, Count: 1}, iid, hints)
+	return output.WriteDraftNotesPublished(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, output.DraftPublishResult{ID: &id, Count: 1}, iid, hints)
 }
 
 func runMRDraftsPublishAll(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOptions, iid int64) error {
@@ -236,7 +237,7 @@ func runMRDraftsPublishAll(cmd *cobra.Command, rootOpts *rootOptions, projOpts *
 	}
 
 	ctx := commandContext(cmd)
-	hints := &mrHintContext{project: explicitProjectRef(projOpts)}
+	hints := &output.MRHintContext{Project: explicitProjectRef(projOpts)}
 
 	// List first: publishing all of an observed-empty set is a provable
 	// no-op (exit 0), and the count reflects the drafts seen at publish time.
@@ -245,14 +246,14 @@ func runMRDraftsPublishAll(cmd *cobra.Command, rootOpts *rootOptions, projOpts *
 		return err
 	}
 	if len(drafts) == 0 {
-		return writeDraftNotesPublished(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, draftPublishResult{All: true, Noop: true}, iid, hints)
+		return output.WriteDraftNotesPublished(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, output.DraftPublishResult{All: true, Noop: true}, iid, hints)
 	}
 
 	if _, err := client.DraftNotes.PublishAllDraftNotes(resolved.ref, iid, gitlab.WithContext(ctx)); err != nil {
 		return fmt.Errorf("publish all draft notes on merge request !%d in project %q: %w", iid, resolved.ref, err)
 	}
 
-	return writeDraftNotesPublished(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, draftPublishResult{All: true, Count: len(drafts)}, iid, hints)
+	return output.WriteDraftNotesPublished(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, output.DraftPublishResult{All: true, Count: len(drafts)}, iid, hints)
 }
 
 func runMRDraftsDelete(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOptions, iid, id int64) error {
@@ -267,7 +268,7 @@ func runMRDraftsDelete(cmd *cobra.Command, rootOpts *rootOptions, projOpts *proj
 	}
 
 	ctx := commandContext(cmd)
-	hints := &mrHintContext{project: explicitProjectRef(projOpts)}
+	hints := &output.MRHintContext{Project: explicitProjectRef(projOpts)}
 
 	if _, err := client.DraftNotes.DeleteDraftNote(resolved.ref, iid, id, gitlab.WithContext(ctx)); err != nil {
 		wrapped := draftNoteAPIError(
@@ -294,10 +295,10 @@ func runMRDraftsDelete(cmd *cobra.Command, rootOpts *rootOptions, projOpts *proj
 			}
 		}
 
-		return writeDraftNoteDeleted(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, draftDeleteResult{ID: id, Noop: true}, iid, hints)
+		return output.WriteDraftNoteDeleted(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, output.DraftDeleteResult{ID: id, Noop: true}, iid, hints)
 	}
 
-	return writeDraftNoteDeleted(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, draftDeleteResult{ID: id}, iid, hints)
+	return output.WriteDraftNoteDeleted(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, output.DraftDeleteResult{ID: id}, iid, hints)
 }
 
 // fetchAllDraftNotes pages through the caller's pending draft notes. The
@@ -327,12 +328,12 @@ func fetchAllDraftNotes(ctx context.Context, client *gitlab.Client, projectRef a
 
 // pageDraftNotes slices the full draft list into the requested page. Totals
 // are exact because the whole set was fetched.
-func pageDraftNotes(drafts []draftNoteOutput, page, limit int64) ([]draftNoteOutput, mrListPaging) {
+func pageDraftNotes(drafts []output.DraftNoteOutput, page, limit int64) ([]output.DraftNoteOutput, output.MRListPaging) {
 	total := int64(len(drafts))
-	paging := mrListPaging{
-		page:       page,
-		totalItems: total,
-		totalPages: (total + limit - 1) / limit,
+	paging := output.MRListPaging{
+		Page:       page,
+		TotalItems: total,
+		TotalPages: (total + limit - 1) / limit,
 	}
 
 	start := (page - 1) * limit
@@ -351,7 +352,7 @@ func pageDraftNotes(drafts []draftNoteOutput, page, limit int64) ([]draftNoteOut
 // draftNoteAPIError attaches a drafts-list hint to 404s so the fixed
 // gitlab_not_found suggestion ("check the project path") does not mislead
 // when the missing resource is the draft note itself.
-func draftNoteAPIError(wrapped, cause error, bin string, iid int64, hints *mrHintContext) error {
+func draftNoteAPIError(wrapped, cause error, bin string, iid int64, hints *output.MRHintContext) error {
 	if !isGitLabNotFound(cause) {
 		return wrapped
 	}
@@ -360,12 +361,6 @@ func draftNoteAPIError(wrapped, cause error, bin string, iid int64, hints *mrHin
 		"Run `%s mr drafts %d%s` to list your pending draft notes and their IDs",
 		bin,
 		iid,
-		hints.projectSuffix(),
+		hints.ProjectSuffix(),
 	))
-}
-
-func isGitLabNotFound(err error) bool {
-	var respErr *gitlab.ErrorResponse
-
-	return errors.As(err, &respErr) && respErr.StatusCode == 404
 }

@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/shabashab/community-gitlab-cli/internal/cli/output"
 	"github.com/shabashab/community-gitlab-cli/internal/gitlabclient"
 	"github.com/shabashab/community-gitlab-cli/internal/repo"
 	"github.com/spf13/cobra"
@@ -82,7 +83,7 @@ func runProjectInfo(cmd *cobra.Command, rootOpts *rootOptions, opts *projectOpti
 		return fmt.Errorf("get GitLab project %q: %w", resolved.ref, err)
 	}
 
-	return writeProject(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, project)
+	return output.WriteProject(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, project)
 }
 
 func resolveProject(cmd *cobra.Command, rootOpts *rootOptions, opts *projectOptions) (resolvedProject, error) {
@@ -124,4 +125,14 @@ func hasConfiguredBaseURL(opts *rootOptions) bool {
 	}
 
 	return strings.TrimSpace(os.Getenv(gitlabclient.BaseURLEnv)) != ""
+}
+
+// explicitProjectRef reports the --project value when one was passed, so help
+// hints can carry the flag forward into suggested commands.
+func explicitProjectRef(projOpts *projectOptions) string {
+	if projOpts == nil {
+		return ""
+	}
+
+	return strings.TrimSpace(projOpts.project)
 }

@@ -14,7 +14,7 @@ count: 2 of 2 total
 help[1]: Run `mr view <iid>` for details
 ```
 
-Implementation rule: all TOON is produced by `toon.MarshalString` over structs tagged `toon:"..."` (see `internal/cli/output.go`). Hand-formatted TOON is not allowed anywhere in the codebase — quoting, escaping, and header rules come from the library, so output always strict-decodes.
+Implementation rule: all TOON is produced by `toon.MarshalString` over structs tagged `toon:"..."` (see `internal/cli/output/`). Hand-formatted TOON is not allowed anywhere in the codebase — quoting, escaping, and header rules come from the library, so output always strict-decodes.
 
 The document itself is spec-compliant (no trailing newline); the CLI appends a single POSIX trailing newline when writing to stdout.
 

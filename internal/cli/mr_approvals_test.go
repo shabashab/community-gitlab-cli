@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shabashab/community-gitlab-cli/internal/cli/output"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 
@@ -200,8 +201,8 @@ func TestWriteMergeRequestApprovalAxiTOONFull(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := writeMergeRequestApproval(&out, "toon", commandModeAxi, approvals, true, nil); err != nil {
-		t.Fatalf("writeMergeRequestApproval returned error: %v", err)
+	if err := output.WriteMergeRequestApproval(&out, "toon", commandModeAxi, approvals, true, nil); err != nil {
+		t.Fatalf("output.WriteMergeRequestApproval returned error: %v", err)
 	}
 
 	got := out.String()

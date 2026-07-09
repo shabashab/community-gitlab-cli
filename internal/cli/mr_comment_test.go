@@ -10,6 +10,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/shabashab/community-gitlab-cli/internal/diffpos"
 )
 
 const (
@@ -548,8 +550,8 @@ func TestMRCommentDiffNotReady(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	_, err := executeCommentCommand(t, commandModeAxi, server.URL, nil, "mr", "comment", "123", "--file", "src/app.go", "--line", "15", "--body", "x")
-	if !errors.Is(err, errMergeRequestDiffNotReady) {
-		t.Fatalf("expected errMergeRequestDiffNotReady, got %v", err)
+	if !errors.Is(err, diffpos.ErrDiffNotReady) {
+		t.Fatalf("expected diffpos.ErrDiffNotReady, got %v", err)
 	}
 	if exitCodeForError(err) != 1 {
 		t.Fatalf("exitCodeForError = %d, want 1", exitCodeForError(err))
@@ -570,8 +572,8 @@ func TestMRCommentFileNotInDiff(t *testing.T) {
 	server, _ := newCommentPositionServer(t, discussionsListPath, "{}")
 
 	_, err := executeCommentCommand(t, commandModeAxi, server.URL, nil, "mr", "comment", "123", "--file", "missing.go", "--line", "3", "--body", "x")
-	if !errors.Is(err, errFileNotInDiff) {
-		t.Fatalf("expected errFileNotInDiff, got %v", err)
+	if !errors.Is(err, diffpos.ErrFileNotInDiff) {
+		t.Fatalf("expected diffpos.ErrFileNotInDiff, got %v", err)
 	}
 
 	var buf bytes.Buffer
@@ -586,8 +588,11 @@ func TestMRCommentLineNotInDiff(t *testing.T) {
 	server, _ := newCommentPositionServer(t, discussionsListPath, "{}")
 
 	_, err := executeCommentCommand(t, commandModeAxi, server.URL, nil, "mr", "comment", "123", "--file", "src/app.go", "--line", "99", "--body", "x")
-	if !errors.Is(err, errLineNotInDiff) {
-		t.Fatalf("expected errLineNotInDiff, got %v", err)
+	if !errors.Is(err, diffpos.ErrLineNotInDiff) {
+		t.Fatalf("expected diffpos.ErrLineNotInDiff, got %v", err)
+	}
+	if exitCodeForError(err) != 1 {
+		t.Fatalf("line_not_in_diff must stay a runtime error, got exit %d", exitCodeForError(err))
 	}
 
 	var buf bytes.Buffer
@@ -603,8 +608,8 @@ func TestMRCommentLineNotInDiffSuggestsOtherSide(t *testing.T) {
 
 	// New side spans 12-16; line 10 exists only on the old side (ctx1).
 	_, err := executeCommentCommand(t, commandModeAxi, server.URL, nil, "mr", "comment", "123", "--file", "src/app.go", "--line", "10", "--body", "x")
-	if !errors.Is(err, errLineNotInDiff) {
-		t.Fatalf("expected errLineNotInDiff, got %v", err)
+	if !errors.Is(err, diffpos.ErrLineNotInDiff) {
+		t.Fatalf("expected diffpos.ErrLineNotInDiff, got %v", err)
 	}
 
 	hintFound := false
@@ -698,5 +703,49 @@ func TestMRCommentParentDispatchRedirects(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "runs as a subcommand") {
 		t.Fatalf("error %q missing subcommand redirect", err.Error())
+	}
+}
+
+func TestParseLineSpec(t *testing.T) {
+	tests := []struct {
+		value      string
+		start, end int64
+		wantErr    bool
+	}{
+		{"5", 5, 5, false},
+		{"3:9", 3, 9, false},
+		{" 4 : 6 ", 4, 6, false},
+		{"7:7", 7, 7, false},
+		{"9:3", 0, 0, true},
+		{"0", 0, 0, true},
+		{"-1", 0, 0, true},
+		{"a", 0, 0, true},
+		{"1:b", 0, 0, true},
+		{"1:", 0, 0, true},
+		{":", 0, 0, true},
+		{"1:2:3", 0, 0, true},
+		{"", 0, 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.value, func(t *testing.T) {
+			start, end, err := parseLineSpec("line", tt.value)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected an error for %q", tt.value)
+				}
+				if exitCodeForError(err) != 2 {
+					t.Fatalf("expected usage exit code 2, got %d", exitCodeForError(err))
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseLineSpec(%q): %v", tt.value, err)
+			}
+			if start != tt.start || end != tt.end {
+				t.Fatalf("parseLineSpec(%q): expected (%d, %d), got (%d, %d)", tt.value, tt.start, tt.end, start, end)
+			}
+		})
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/shabashab/community-gitlab-cli/internal/agenthooks"
+	"github.com/shabashab/community-gitlab-cli/internal/cli/output"
 	"github.com/spf13/cobra"
 )
 
@@ -41,16 +42,16 @@ func runSetupHooks(cmd *cobra.Command, rootOpts *rootOptions) error {
 
 	results := agenthooks.InstallSessionStartHooks(agenthooks.Options{Command: command})
 
-	targets := make([]setupTargetOutput, 0, len(results))
+	targets := make([]output.SetupTargetOutput, 0, len(results))
 	for _, result := range results {
-		targets = append(targets, setupTargetOutput{
+		targets = append(targets, output.SetupTargetOutput{
 			App:    result.App,
 			Path:   result.Path,
 			Status: result.Status,
 		})
 	}
 
-	return writeAxi(cmd.OutOrStdout(), rootOpts.output, axiSetupHooksOutput{
+	return output.WriteAxi(cmd.OutOrStdout(), rootOpts.output, output.AxiSetupHooksOutput{
 		Hooks: targets,
 		Help: []string{
 			"Restart your agent session to receive gl-axi ambient context",

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/shabashab/community-gitlab-cli/internal/cli/output"
 	"github.com/spf13/cobra"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
@@ -35,5 +36,5 @@ func runWhoami(cmd *cobra.Command, opts *rootOptions) error {
 		return fmt.Errorf("get current GitLab user: %w", err)
 	}
 
-	return writeUser(cmd.OutOrStdout(), opts.output, opts.mode, user)
+	return output.WriteUser(cmd.OutOrStdout(), opts.output, opts.mode, user)
 }

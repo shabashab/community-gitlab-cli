@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/shabashab/community-gitlab-cli/internal/cli/output"
 )
 
 // newMRCreateTestServer stubs the three endpoints mr create can touch and
@@ -330,9 +332,9 @@ func TestWriteMergeRequestCreatedAxiTOON(t *testing.T) {
 	mergeRequest := testMergeRequest(124, "short description")
 
 	var out bytes.Buffer
-	hints := &mrHintContext{project: "group/project"}
-	if err := writeMergeRequestCreated(&out, "toon", commandModeAxi, mergeRequest, hints); err != nil {
-		t.Fatalf("writeMergeRequestCreated returned error: %v", err)
+	hints := &output.MRHintContext{Project: "group/project"}
+	if err := output.WriteMergeRequestCreated(&out, "toon", commandModeAxi, mergeRequest, hints); err != nil {
+		t.Fatalf("output.WriteMergeRequestCreated returned error: %v", err)
 	}
 
 	got := out.String()

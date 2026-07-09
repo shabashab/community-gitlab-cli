@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/shabashab/community-gitlab-cli/internal/cli/output"
 	"github.com/spf13/cobra"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
@@ -111,7 +112,7 @@ func runMRApprovals(cmd *cobra.Command, rootOpts *rootOptions, projOpts *project
 		return err
 	}
 
-	return writeMergeRequestApproval(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, approvals, opts.full, nil)
+	return output.WriteMergeRequestApproval(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, approvals, opts.full, nil)
 }
 
 func runMRApprove(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOptions, opts *mrApproveOptions, iid int64) error {
@@ -140,10 +141,10 @@ func runMRApprove(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOp
 		return fmt.Errorf("approve merge request !%d in project %q: %w", iid, resolved.ref, err)
 	}
 
-	hints := &mrHintContext{project: explicitProjectRef(projOpts)}
-	help := []string{fmt.Sprintf("Run `mr view %d%s` to check merge status and pipeline results", iid, hints.projectSuffix())}
+	hints := &output.MRHintContext{Project: explicitProjectRef(projOpts)}
+	help := []string{fmt.Sprintf("Run `mr view %d%s` to check merge status and pipeline results", iid, hints.ProjectSuffix())}
 
-	return writeMergeRequestApproval(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, approvals, false, help)
+	return output.WriteMergeRequestApproval(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, approvals, false, help)
 }
 
 func runMRUnapprove(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOptions, iid int64) error {
@@ -166,10 +167,10 @@ func runMRUnapprove(cmd *cobra.Command, rootOpts *rootOptions, projOpts *project
 		return err
 	}
 
-	hints := &mrHintContext{project: explicitProjectRef(projOpts)}
-	help := []string{fmt.Sprintf("Run `mr view %d%s` to check merge status and pipeline results", iid, hints.projectSuffix())}
+	hints := &output.MRHintContext{Project: explicitProjectRef(projOpts)}
+	help := []string{fmt.Sprintf("Run `mr view %d%s` to check merge status and pipeline results", iid, hints.ProjectSuffix())}
 
-	return writeMergeRequestApproval(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, approvals, false, help)
+	return output.WriteMergeRequestApproval(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, approvals, false, help)
 }
 
 func fetchMergeRequestApprovals(cmd *cobra.Command, client *gitlab.Client, projectRef any, iid int64) (*gitlab.MergeRequestApprovals, error) {

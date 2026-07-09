@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/shabashab/community-gitlab-cli/internal/cli/output"
 	"github.com/spf13/cobra"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
@@ -185,9 +186,9 @@ func runMRUpdate(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOpt
 		return fmt.Errorf("update merge request !%d in project %q: %w", iid, resolved.ref, err)
 	}
 
-	hints := &mrHintContext{project: explicitProjectRef(projOpts)}
+	hints := &output.MRHintContext{Project: explicitProjectRef(projOpts)}
 
-	return writeMergeRequestCreated(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, updated, hints)
+	return output.WriteMergeRequestCreated(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, updated, hints)
 }
 
 // resolveUpdateTitle decides whether a title is sent and what it should be.
