@@ -318,3 +318,10 @@ func writeCommandError(w io.Writer, mode commandMode, format string, bin string,
 		fmt.Fprintln(w, err)
 	}
 }
+
+// isGitLabNotFound reports whether err is a GitLab API 404 response.
+func isGitLabNotFound(err error) bool {
+	var respErr *gitlab.ErrorResponse
+
+	return errors.As(err, &respErr) && respErr.StatusCode == 404
+}

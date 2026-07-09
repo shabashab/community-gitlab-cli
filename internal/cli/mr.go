@@ -254,59 +254,6 @@ func parseMRListFields(value string) ([]string, error) {
 	return parseExtraFields(value, mrListExtraFields, mrListDefaultFields)
 }
 
-// parseExtraFields validates a --fields value against a command's extra and
-// default column sets and returns the extras in canonical order. Unknown
-// names fail loud with the valid set inline.
-func parseExtraFields(value string, extraFields, defaultFields []string) ([]string, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return nil, nil
-	}
-
-	requested := map[string]bool{}
-	for _, name := range strings.Split(value, ",") {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
-		}
-
-		known := false
-		for _, extra := range extraFields {
-			if name == extra {
-				known = true
-				break
-			}
-		}
-		for _, def := range defaultFields {
-			if name == def {
-				known = true // defaults are always emitted; requesting them is a no-op
-				break
-			}
-		}
-		if !known {
-			return nil, newUsageError(
-				fmt.Errorf("unknown field %q for --fields", name),
-				fmt.Sprintf(
-					"Valid --fields values: %s (defaults always included: %s)",
-					strings.Join(extraFields, ", "),
-					strings.Join(defaultFields, ", "),
-				),
-			)
-		}
-
-		requested[name] = true
-	}
-
-	var fields []string
-	for _, extra := range extraFields {
-		if requested[extra] {
-			fields = append(fields, extra)
-		}
-	}
-
-	return fields, nil
-}
-
 func newMRViewCommand(rootOpts *rootOptions, projOpts *projectOptions) *cobra.Command {
 	opts := &mrViewOptions{}
 
@@ -484,16 +431,6 @@ func fetchMergeRequestList(cmd *cobra.Command, rootOpts *rootOptions, resolved r
 	}
 
 	return mergeRequests, paging, nil
-}
-
-// explicitProjectRef reports the --project value when one was passed, so help
-// hints can carry the flag forward into suggested commands.
-func explicitProjectRef(projOpts *projectOptions) string {
-	if projOpts == nil {
-		return ""
-	}
-
-	return strings.TrimSpace(projOpts.project)
 }
 
 func buildListMergeRequestsOptions(opts *mrListOptions) *gitlab.ListProjectMergeRequestsOptions {

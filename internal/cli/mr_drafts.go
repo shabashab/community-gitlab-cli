@@ -364,9 +364,3 @@ func draftNoteAPIError(wrapped, cause error, bin string, iid int64, hints *outpu
 		hints.ProjectSuffix(),
 	))
 }
-
-func isGitLabNotFound(err error) bool {
-	var respErr *gitlab.ErrorResponse
-
-	return errors.As(err, &respErr) && respErr.StatusCode == 404
-}

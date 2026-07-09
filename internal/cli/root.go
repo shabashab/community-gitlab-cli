@@ -4,6 +4,7 @@ Copyright © 2026 Artem Tarasenko <shabashab.04@gmail.com>
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -256,4 +257,14 @@ func ExecuteAxi() {
 		commandModeAxi,
 	)
 	execute(cmd, opts)
+}
+
+// commandContext returns the cobra command context, falling back to the
+// background context for commands constructed outside execute().
+func commandContext(cmd *cobra.Command) context.Context {
+	if ctx := cmd.Context(); ctx != nil {
+		return ctx
+	}
+
+	return context.Background()
 }

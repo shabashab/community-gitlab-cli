@@ -126,3 +126,13 @@ func hasConfiguredBaseURL(opts *rootOptions) bool {
 
 	return strings.TrimSpace(os.Getenv(gitlabclient.BaseURLEnv)) != ""
 }
+
+// explicitProjectRef reports the --project value when one was passed, so help
+// hints can carry the flag forward into suggested commands.
+func explicitProjectRef(projOpts *projectOptions) string {
+	if projOpts == nil {
+		return ""
+	}
+
+	return strings.TrimSpace(projOpts.project)
+}
