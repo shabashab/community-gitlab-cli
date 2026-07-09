@@ -3,9 +3,11 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/shabashab/community-gitlab-cli/internal/cli/output"
+	"github.com/shabashab/community-gitlab-cli/internal/diffpos"
 	"github.com/spf13/cobra"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
@@ -82,62 +84,62 @@ currently checked out git branch. In bash and zsh, quote the bang form
 
 // validateMRCommentOptions enforces the flag-combination matrix before any
 // API call and turns the position flags into a comment anchor.
-func validateMRCommentOptions(opts *mrCommentOptions) (commentAnchor, error) {
+func validateMRCommentOptions(opts *mrCommentOptions) (diffpos.Anchor, error) {
 	if opts.lineSet && opts.oldLineSet {
-		return commentAnchor{}, newUsageError(
+		return diffpos.Anchor{}, newUsageError(
 			errors.New("--line and --old-line are mutually exclusive"),
 			"--line addresses the new file version, --old-line the old one — for unchanged lines either side works and the CLI pairs them automatically",
 		)
 	}
 	if (opts.lineSet || opts.oldLineSet) && !opts.fileSet {
-		return commentAnchor{}, newUsageError(
+		return diffpos.Anchor{}, newUsageError(
 			errors.New("--line/--old-line require --file"),
 			"Pass --file <path> with the file the line belongs to",
 		)
 	}
 	if opts.replySet && (opts.fileSet || opts.lineSet || opts.oldLineSet) {
-		return commentAnchor{}, newUsageError(
+		return diffpos.Anchor{}, newUsageError(
 			errors.New("--reply-to cannot be combined with --file/--line/--old-line"),
 			"A reply attaches to the thread's existing position — drop the position flags",
 		)
 	}
 	if opts.replySet && opts.note {
-		return commentAnchor{}, newUsageError(
+		return diffpos.Anchor{}, newUsageError(
 			errors.New("--reply-to cannot be combined with --note"),
 			"Replies always join the referenced discussion thread — drop --note",
 		)
 	}
 	if opts.note && opts.draft {
-		return commentAnchor{}, newUsageError(
+		return diffpos.Anchor{}, newUsageError(
 			errors.New("--note cannot be combined with --draft"),
 			"Draft notes always publish into discussions — drop --note, or drop --draft for an immediate plain note",
 		)
 	}
 	if opts.note && opts.fileSet {
-		return commentAnchor{}, newUsageError(
+		return diffpos.Anchor{}, newUsageError(
 			errors.New("--note cannot be combined with --file/--line/--old-line"),
 			"Plain notes cannot anchor to the diff — drop --note to create a diff thread",
 		)
 	}
 	if opts.resolve && !opts.replySet {
-		return commentAnchor{}, newUsageError(
+		return diffpos.Anchor{}, newUsageError(
 			errors.New("--resolve requires --reply-to"),
 			"--resolve marks the replied-to thread resolved when the draft publishes — pass --reply-to <discussion-id>",
 		)
 	}
 	if opts.resolve && !opts.draft {
-		return commentAnchor{}, newUsageError(
+		return diffpos.Anchor{}, newUsageError(
 			errors.New("--resolve requires --draft"),
 			"Only draft replies can resolve a thread on publish — add --draft",
 		)
 	}
 
-	anchor := commentAnchor{
-		file: strings.TrimPrefix(strings.TrimSpace(opts.file), "./"),
-		side: sideNew,
+	anchor := diffpos.Anchor{
+		File: strings.TrimPrefix(strings.TrimSpace(opts.file), "./"),
+		Side: diffpos.SideNew,
 	}
-	if opts.fileSet && anchor.file == "" {
-		return commentAnchor{}, newUsageError(
+	if opts.fileSet && anchor.File == "" {
+		return diffpos.Anchor{}, newUsageError(
 			errors.New("--file requires a non-empty path"),
 			"Pass the repository-relative path of a file changed by the merge request",
 		)
@@ -146,13 +148,13 @@ func validateMRCommentOptions(opts *mrCommentOptions) (commentAnchor, error) {
 	var err error
 	switch {
 	case opts.lineSet:
-		anchor.start, anchor.end, err = parseLineSpec("line", opts.line)
+		anchor.Start, anchor.End, err = parseLineSpec("line", opts.line)
 	case opts.oldLineSet:
-		anchor.side = sideOld
-		anchor.start, anchor.end, err = parseLineSpec("old-line", opts.oldLine)
+		anchor.Side = diffpos.SideOld
+		anchor.Start, anchor.End, err = parseLineSpec("old-line", opts.oldLine)
 	}
 	if err != nil {
-		return commentAnchor{}, err
+		return diffpos.Anchor{}, err
 	}
 
 	return anchor, nil
@@ -194,7 +196,7 @@ func runMRComment(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOp
 
 	var position *gitlab.PositionOptions
 	if opts.fileSet {
-		position, err = resolveCommentPosition(ctx, client, resolved.ref, iid, anchor)
+		position, err = diffpos.ResolvePosition(ctx, client, resolved.ref, iid, anchor)
 		if err != nil {
 			return err
 		}
@@ -290,4 +292,49 @@ func firstDiscussionNote(discussion *gitlab.Discussion) *gitlab.Note {
 	}
 
 	return nil
+}
+
+// parseLineSpec parses a --line/--old-line value: a single 1-based line
+// number ("42") or an inclusive range ("10:15").
+func parseLineSpec(flagName, value string) (start, end int64, err error) {
+	trimmed := strings.TrimSpace(value)
+	help := fmt.Sprintf(
+		"Pass --%s <line> for a single line or --%s <start>:<end> for a range, with 1-based line numbers",
+		flagName,
+		flagName,
+	)
+
+	parts := strings.Split(trimmed, ":")
+	if trimmed == "" || len(parts) > 2 {
+		return 0, 0, newUsageError(
+			fmt.Errorf("invalid --%s %q: expected <line> or <start>:<end>", flagName, value),
+			help,
+		)
+	}
+
+	numbers := make([]int64, len(parts))
+	for i, part := range parts {
+		number, parseErr := strconv.ParseInt(strings.TrimSpace(part), 10, 64)
+		if parseErr != nil || number <= 0 {
+			return 0, 0, newUsageError(
+				fmt.Errorf("invalid --%s %q: line numbers must be positive integers", flagName, value),
+				help,
+			)
+		}
+		numbers[i] = number
+	}
+
+	start = numbers[0]
+	end = start
+	if len(numbers) == 2 {
+		end = numbers[1]
+	}
+	if end < start {
+		return 0, 0, newUsageError(
+			fmt.Errorf("invalid --%s %q: range start %d is after end %d", flagName, value, start, end),
+			help,
+		)
+	}
+
+	return start, end, nil
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/shabashab/community-gitlab-cli/internal/cli/output"
+	"github.com/shabashab/community-gitlab-cli/internal/diffpos"
 	"github.com/spf13/cobra"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
@@ -188,7 +189,7 @@ func fetchMRDiffData(ctx context.Context, client *gitlab.Client, projectRef any,
 		return mrDiffData{}, err
 	}
 
-	diffs, err := fetchAllMergeRequestDiffs(ctx, client, projectRef, iid)
+	diffs, err := diffpos.FetchAllDiffs(ctx, client, projectRef, iid)
 	if err != nil {
 		return mrDiffData{}, err
 	}
@@ -203,7 +204,7 @@ func ensureMergeRequestDiffRefs(mergeRequest *gitlab.MergeRequest, iid int64) er
 	refs := mergeRequest.DiffRefs
 	if refs.BaseSha == "" || refs.HeadSha == "" || refs.StartSha == "" {
 		return newHelpError(
-			fmt.Errorf("%w: merge request !%d has no diff refs", errMergeRequestDiffNotReady, iid),
+			fmt.Errorf("%w: merge request !%d has no diff refs", diffpos.ErrDiffNotReady, iid),
 			"GitLab is still preparing the merge request diff — retry in a few seconds",
 		)
 	}
@@ -240,21 +241,21 @@ func mrDiffFileFromAPI(diff *gitlab.MergeRequestDiff) (output.MRDiffFile, error)
 		file.OldPath = ""
 	}
 
-	index, err := parseFileDiff(diff.Diff)
+	index, err := diffpos.ParseFileDiff(diff.Diff)
 	if err != nil {
 		return output.MRDiffFile{}, fmt.Errorf("parse diff of %q: %w", file.Path, err)
 	}
-	for _, line := range index.lines {
-		switch line.kind {
-		case diffLineAdded:
+	for _, line := range index.Lines {
+		switch line.Kind {
+		case diffpos.LineAdded:
 			file.Additions++
-		case diffLineRemoved:
+		case diffpos.LineRemoved:
 			file.Deletions++
 		}
 	}
-	file.Hunks = len(index.hunks)
-	file.NewRanges = index.commentableRanges(sideNew)
-	file.OldRanges = index.commentableRanges(sideOld)
+	file.Hunks = len(index.Hunks)
+	file.NewRanges = index.CommentableRanges(diffpos.SideNew)
+	file.OldRanges = index.CommentableRanges(diffpos.SideOld)
 
 	return file, nil
 }
@@ -268,8 +269,8 @@ func filterMRDiffFiles(diffs []*gitlab.MergeRequestDiff, files []output.MRDiffFi
 	}
 
 	return nil, newHelpError(
-		fmt.Errorf("%w: %q is not changed in merge request !%d", errFileNotInDiff, normalized, iid),
-		changedFilesHint(diffs),
+		fmt.Errorf("%w: %q is not changed in merge request !%d", diffpos.ErrFileNotInDiff, normalized, iid),
+		diffpos.ChangedFilesHint(diffs),
 	)
 }
 

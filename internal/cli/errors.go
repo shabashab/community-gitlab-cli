@@ -9,6 +9,7 @@ import (
 
 	"github.com/shabashab/community-gitlab-cli/internal/cli/output"
 	"github.com/shabashab/community-gitlab-cli/internal/credstore"
+	"github.com/shabashab/community-gitlab-cli/internal/diffpos"
 	"github.com/shabashab/community-gitlab-cli/internal/gitlabclient"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -46,16 +47,23 @@ func (e *helpError) Error() string { return e.err.Error() }
 
 func (e *helpError) Unwrap() error { return e.err }
 
+func (e *helpError) HelpHints() []string { return e.help }
+
 func newHelpError(err error, help ...string) error {
 	return &helpError{err: err, help: help}
 }
 
+// helpCarrier is implemented by error types that carry next-step hints built
+// at the error site: cli's helpError and diffpos's hinted errors. usageError
+// must not implement it — usage hints flow through classifyError directly.
+type helpCarrier interface{ HelpHints() []string }
+
 // helpFromError returns hints attached at the error site when present,
 // otherwise the fallback hints.
 func helpFromError(err error, fallback ...string) []string {
-	var withHelp *helpError
-	if errors.As(err, &withHelp) && len(withHelp.help) > 0 {
-		return withHelp.help
+	var carrier helpCarrier
+	if errors.As(err, &carrier) && len(carrier.HelpHints()) > 0 {
+		return carrier.HelpHints()
 	}
 
 	return fallback
@@ -212,19 +220,19 @@ func classifyError(err error, bin string) (code, message string, help []string) 
 		return "no_update_flags", message, []string{
 			fmt.Sprintf("Pass at least one field flag — run `%s mr update --help` for the list", bin),
 		}
-	case errors.Is(err, errMergeRequestDiffNotReady):
+	case errors.Is(err, diffpos.ErrDiffNotReady):
 		return "merge_request_diff_not_ready", message, helpFromError(err,
 			"GitLab is still preparing the merge request diff — retry in a few seconds",
 		)
-	case errors.Is(err, errFileNotInDiff):
+	case errors.Is(err, diffpos.ErrFileNotInDiff):
 		return "file_not_in_diff", message, helpFromError(err,
 			"Pass --file with the path of a file changed by the merge request",
 		)
-	case errors.Is(err, errLineNotInDiff):
+	case errors.Is(err, diffpos.ErrLineNotInDiff):
 		return "line_not_in_diff", message, helpFromError(err,
 			"Only lines visible in the merge request diff can carry comments — --line addresses the new file, --old-line the old one",
 		)
-	case errors.Is(err, errDiffTooLarge):
+	case errors.Is(err, diffpos.ErrDiffTooLarge):
 		return "diff_too_large", message, helpFromError(err,
 			"Drop --line/--old-line to comment on the file itself instead",
 		)
