@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shabashab/community-gitlab-cli/internal/cli/output"
 	"github.com/shabashab/community-gitlab-cli/internal/gitlabclient"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
@@ -23,13 +24,13 @@ func TestWriteUserSupportsText(t *testing.T) {
 		WebURL:   "https://gitlab.example/octocat",
 	}
 
-	if err := writeUser(&out, "text", commandModeStandard, user); err != nil {
-		t.Fatalf("writeUser returned error: %v", err)
+	if err := output.WriteUser(&out, "text", commandModeStandard, user); err != nil {
+		t.Fatalf("output.WriteUser returned error: %v", err)
 	}
 
 	want := "id: 42\nusername: octocat\nname: Mona Lisa\nstate: active\nweb_url: https://gitlab.example/octocat\n"
 	if out.String() != want {
-		t.Fatalf("writeUser output = %q, want %q", out.String(), want)
+		t.Fatalf("output.WriteUser output = %q, want %q", out.String(), want)
 	}
 }
 
@@ -115,8 +116,8 @@ func TestWriteUserSupportsJSON(t *testing.T) {
 		WebURL:   "https://gitlab.example/octocat",
 	}
 
-	if err := writeUser(&out, "json", commandModeStandard, user); err != nil {
-		t.Fatalf("writeUser returned error: %v", err)
+	if err := output.WriteUser(&out, "json", commandModeStandard, user); err != nil {
+		t.Fatalf("output.WriteUser returned error: %v", err)
 	}
 
 	for _, fragment := range []string{
@@ -125,22 +126,22 @@ func TestWriteUserSupportsJSON(t *testing.T) {
 		`"web_url": "https://gitlab.example/octocat"`,
 	} {
 		if !strings.Contains(out.String(), fragment) {
-			t.Fatalf("writeUser JSON = %q, want fragment %q", out.String(), fragment)
+			t.Fatalf("output.WriteUser JSON = %q, want fragment %q", out.String(), fragment)
 		}
 	}
 }
 
 func TestWriteUserRejectsUnknownOutputFormat(t *testing.T) {
-	err := writeUser(&bytes.Buffer{}, "yaml", commandModeStandard, &gitlab.User{})
+	err := output.WriteUser(&bytes.Buffer{}, "yaml", commandModeStandard, &gitlab.User{})
 	if err == nil {
-		t.Fatal("writeUser returned nil error, want unsupported format error")
+		t.Fatal("output.WriteUser returned nil error, want unsupported format error")
 	}
 }
 
 func TestWriteUserRejectsNilUser(t *testing.T) {
-	err := writeUser(&bytes.Buffer{}, "text", commandModeStandard, nil)
+	err := output.WriteUser(&bytes.Buffer{}, "text", commandModeStandard, nil)
 	if err == nil {
-		t.Fatal("writeUser returned nil error, want nil user error")
+		t.Fatal("output.WriteUser returned nil error, want nil user error")
 	}
 }
 
@@ -154,8 +155,8 @@ func TestWriteUserSupportsAxiTOON(t *testing.T) {
 		WebURL:   "https://gitlab.example/octocat",
 	}
 
-	if err := writeUser(&out, "toon", commandModeAxi, user); err != nil {
-		t.Fatalf("writeUser returned error: %v", err)
+	if err := output.WriteUser(&out, "toon", commandModeAxi, user); err != nil {
+		t.Fatalf("output.WriteUser returned error: %v", err)
 	}
 
 	for _, fragment := range []string{
@@ -166,7 +167,7 @@ func TestWriteUserSupportsAxiTOON(t *testing.T) {
 		"Run `mr` to list open merge requests",
 	} {
 		if !strings.Contains(out.String(), fragment) {
-			t.Fatalf("writeUser AXI output = %q, want fragment %q", out.String(), fragment)
+			t.Fatalf("output.WriteUser AXI output = %q, want fragment %q", out.String(), fragment)
 		}
 	}
 }
@@ -181,8 +182,8 @@ func TestWriteUserSupportsAxiJSON(t *testing.T) {
 		WebURL:   "https://gitlab.example/octocat",
 	}
 
-	if err := writeUser(&out, "json", commandModeAxi, user); err != nil {
-		t.Fatalf("writeUser returned error: %v", err)
+	if err := output.WriteUser(&out, "json", commandModeAxi, user); err != nil {
+		t.Fatalf("output.WriteUser returned error: %v", err)
 	}
 
 	for _, fragment := range []string{
@@ -191,7 +192,7 @@ func TestWriteUserSupportsAxiJSON(t *testing.T) {
 		`"help": [`,
 	} {
 		if !strings.Contains(out.String(), fragment) {
-			t.Fatalf("writeUser AXI JSON = %q, want fragment %q", out.String(), fragment)
+			t.Fatalf("output.WriteUser AXI JSON = %q, want fragment %q", out.String(), fragment)
 		}
 	}
 }
@@ -266,8 +267,8 @@ func TestTranslateGitLabAPIErrorTruncatesLongDetail(t *testing.T) {
 func TestWriteProjectSupportsText(t *testing.T) {
 	var out bytes.Buffer
 
-	if err := writeProject(&out, "text", commandModeStandard, testProject()); err != nil {
-		t.Fatalf("writeProject returned error: %v", err)
+	if err := output.WriteProject(&out, "text", commandModeStandard, testProject()); err != nil {
+		t.Fatalf("output.WriteProject returned error: %v", err)
 	}
 
 	for _, fragment := range []string{
@@ -277,7 +278,7 @@ func TestWriteProjectSupportsText(t *testing.T) {
 		"namespace_full_path: group",
 	} {
 		if !strings.Contains(out.String(), fragment) {
-			t.Fatalf("writeProject text = %q, want fragment %q", out.String(), fragment)
+			t.Fatalf("output.WriteProject text = %q, want fragment %q", out.String(), fragment)
 		}
 	}
 }
@@ -285,8 +286,8 @@ func TestWriteProjectSupportsText(t *testing.T) {
 func TestWriteProjectSupportsJSON(t *testing.T) {
 	var out bytes.Buffer
 
-	if err := writeProject(&out, "json", commandModeStandard, testProject()); err != nil {
-		t.Fatalf("writeProject returned error: %v", err)
+	if err := output.WriteProject(&out, "json", commandModeStandard, testProject()); err != nil {
+		t.Fatalf("output.WriteProject returned error: %v", err)
 	}
 
 	for _, fragment := range []string{
@@ -296,7 +297,7 @@ func TestWriteProjectSupportsJSON(t *testing.T) {
 		`"namespace": {`,
 	} {
 		if !strings.Contains(out.String(), fragment) {
-			t.Fatalf("writeProject JSON = %q, want fragment %q", out.String(), fragment)
+			t.Fatalf("output.WriteProject JSON = %q, want fragment %q", out.String(), fragment)
 		}
 	}
 }
@@ -304,8 +305,8 @@ func TestWriteProjectSupportsJSON(t *testing.T) {
 func TestWriteProjectSupportsAxiTOON(t *testing.T) {
 	var out bytes.Buffer
 
-	if err := writeProject(&out, "toon", commandModeAxi, testProject()); err != nil {
-		t.Fatalf("writeProject returned error: %v", err)
+	if err := output.WriteProject(&out, "toon", commandModeAxi, testProject()); err != nil {
+		t.Fatalf("output.WriteProject returned error: %v", err)
 	}
 
 	for _, fragment := range []string{
@@ -315,20 +316,20 @@ func TestWriteProjectSupportsAxiTOON(t *testing.T) {
 		"full_path: group",
 	} {
 		if !strings.Contains(out.String(), fragment) {
-			t.Fatalf("writeProject AXI output = %q, want fragment %q", out.String(), fragment)
+			t.Fatalf("output.WriteProject AXI output = %q, want fragment %q", out.String(), fragment)
 		}
 	}
 	// A detail view is self-contained: no help hints expected.
 	if strings.Contains(out.String(), "help[") {
-		t.Fatalf("writeProject AXI output = %q, want no help hints", out.String())
+		t.Fatalf("output.WriteProject AXI output = %q, want no help hints", out.String())
 	}
 }
 
 func TestWriteProjectSupportsAxiJSON(t *testing.T) {
 	var out bytes.Buffer
 
-	if err := writeProject(&out, "json", commandModeAxi, testProject()); err != nil {
-		t.Fatalf("writeProject returned error: %v", err)
+	if err := output.WriteProject(&out, "json", commandModeAxi, testProject()); err != nil {
+		t.Fatalf("output.WriteProject returned error: %v", err)
 	}
 
 	for _, fragment := range []string{
@@ -336,22 +337,22 @@ func TestWriteProjectSupportsAxiJSON(t *testing.T) {
 		`"path_with_namespace": "group/project"`,
 	} {
 		if !strings.Contains(out.String(), fragment) {
-			t.Fatalf("writeProject AXI JSON = %q, want fragment %q", out.String(), fragment)
+			t.Fatalf("output.WriteProject AXI JSON = %q, want fragment %q", out.String(), fragment)
 		}
 	}
 }
 
 func TestWriteProjectRejectsUnknownOutputFormat(t *testing.T) {
-	err := writeProject(&bytes.Buffer{}, "yaml", commandModeStandard, &gitlab.Project{})
+	err := output.WriteProject(&bytes.Buffer{}, "yaml", commandModeStandard, &gitlab.Project{})
 	if err == nil {
-		t.Fatal("writeProject returned nil error, want unsupported format error")
+		t.Fatal("output.WriteProject returned nil error, want unsupported format error")
 	}
 }
 
 func TestWriteProjectRejectsNilProject(t *testing.T) {
-	err := writeProject(&bytes.Buffer{}, "text", commandModeStandard, nil)
+	err := output.WriteProject(&bytes.Buffer{}, "text", commandModeStandard, nil)
 	if err == nil {
-		t.Fatal("writeProject returned nil error, want nil project error")
+		t.Fatal("output.WriteProject returned nil error, want nil project error")
 	}
 }
 

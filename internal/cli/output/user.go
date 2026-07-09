@@ -1,4 +1,4 @@
-package cli
+package output
 
 import (
 	"errors"
@@ -16,7 +16,7 @@ type userOutput struct {
 	WebURL   string `json:"web_url" toon:"web_url"`
 }
 
-type axiUserOutput struct {
+type AxiUserOutput struct {
 	ID       int64  `json:"id" toon:"id"`
 	Username string `json:"username" toon:"username"`
 	Name     string `json:"name" toon:"name"`
@@ -24,23 +24,23 @@ type axiUserOutput struct {
 }
 
 type axiWhoamiOutput struct {
-	User axiUserOutput `json:"user" toon:"user"`
+	User AxiUserOutput `json:"user" toon:"user"`
 	Help []string      `json:"help,omitempty" toon:"help,omitempty"`
 }
 
-func writeUser(w io.Writer, format string, mode commandMode, user *gitlab.User) error {
+func WriteUser(w io.Writer, format string, mode Mode, user *gitlab.User) error {
 	if user == nil {
 		return errors.New("gitlab api returned an empty current user response")
 	}
 
-	if mode == commandModeAxi {
-		return writeAxi(w, format, axiWhoamiOutput{
-			User: axiUserFromAPI(user),
+	if mode == ModeAxi {
+		return WriteAxi(w, format, axiWhoamiOutput{
+			User: AxiUserFromAPI(user),
 			Help: whoamiHelp(),
 		})
 	}
 
-	format, err := normalizeOutputFormat(format, mode)
+	format, err := NormalizeFormat(format, mode)
 	if err != nil {
 		return err
 	}
@@ -54,7 +54,7 @@ func writeUser(w io.Writer, format string, mode commandMode, user *gitlab.User) 
 	}
 
 	if format == "json" {
-		return writeJSON(w, out)
+		return WriteJSON(w, out)
 	}
 
 	_, err = fmt.Fprintf(
@@ -70,8 +70,8 @@ func writeUser(w io.Writer, format string, mode commandMode, user *gitlab.User) 
 	return err
 }
 
-func axiUserFromAPI(user *gitlab.User) axiUserOutput {
-	return axiUserOutput{
+func AxiUserFromAPI(user *gitlab.User) AxiUserOutput {
+	return AxiUserOutput{
 		ID:       user.ID,
 		Username: user.Username,
 		Name:     user.Name,

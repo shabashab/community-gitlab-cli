@@ -1,4 +1,4 @@
-package cli
+package output
 
 import (
 	"errors"
@@ -8,10 +8,10 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 
-// draftNoteOutput is built around GitLab's thin draft-note response, which
+// DraftNoteOutput is built around GitLab's thin draft-note response, which
 // carries no author name or timestamps. DiscussionID is set only for drafts
 // replying to an existing thread.
-type draftNoteOutput struct {
+type DraftNoteOutput struct {
 	ID                int64  `json:"id" toon:"id"`
 	Preview           string `json:"preview" toon:"preview"`
 	File              string `json:"file,omitempty" toon:"file,omitempty"`
@@ -21,7 +21,7 @@ type draftNoteOutput struct {
 }
 
 type axiDraftNoteCreatedOutput struct {
-	DraftNote draftNoteOutput `json:"draft_note" toon:"draft_note"`
+	DraftNote DraftNoteOutput `json:"draft_note" toon:"draft_note"`
 	Help      []string        `json:"help,omitempty" toon:"help,omitempty"`
 }
 
@@ -47,18 +47,18 @@ type axiDraftNoteListOutput struct {
 }
 
 type draftNoteListOutput struct {
-	DraftNotes []draftNoteOutput `json:"draft_notes"`
+	DraftNotes []DraftNoteOutput `json:"draft_notes"`
 	Count      int               `json:"count"`
 	Total      int64             `json:"total"`
 	Page       int64             `json:"page"`
 	TotalPages int64             `json:"total_pages"`
 }
 
-func draftNoteToOutput(draft *gitlab.DraftNote) draftNoteOutput {
-	out := draftNoteOutput{
+func DraftNoteToOutput(draft *gitlab.DraftNote) DraftNoteOutput {
+	out := DraftNoteOutput{
 		ID:                draft.ID,
-		Preview:           discussionPreview(draft.Note),
-		DiscussionID:      shortDiscussionID(draft.DiscussionID),
+		Preview:           DiscussionPreview(draft.Note),
+		DiscussionID:      ShortDiscussionID(draft.DiscussionID),
 		ResolveDiscussion: draft.ResolveDiscussion,
 	}
 	if position := draft.Position; position != nil {
@@ -75,15 +75,15 @@ func draftNoteToOutput(draft *gitlab.DraftNote) draftNoteOutput {
 	return out
 }
 
-func writeDraftNoteCreated(w io.Writer, format string, mode commandMode, draft *gitlab.DraftNote, iid int64, positionRequested bool, hints *mrHintContext) error {
+func WriteDraftNoteCreated(w io.Writer, format string, mode Mode, draft *gitlab.DraftNote, iid int64, positionRequested bool, hints *MRHintContext) error {
 	if draft == nil {
 		return errors.New("gitlab api returned an empty draft note response")
 	}
 
-	out := draftNoteToOutput(draft)
+	out := DraftNoteToOutput(draft)
 
-	if mode == commandModeAxi {
-		suffix := hints.projectSuffix()
+	if mode == ModeAxi {
+		suffix := hints.ProjectSuffix()
 		help := []string{
 			fmt.Sprintf("Run `mr drafts publish %d %d%s` to publish it, or `mr drafts publish %d --all%s` for the whole pending review", iid, out.ID, suffix, iid, suffix),
 			fmt.Sprintf("Run `mr drafts %d%s` to list pending drafts", iid, suffix),
@@ -96,22 +96,22 @@ func writeDraftNoteCreated(w io.Writer, format string, mode commandMode, draft *
 			))
 		}
 
-		return writeAxi(w, format, axiDraftNoteCreatedOutput{DraftNote: out, Help: help})
+		return WriteAxi(w, format, axiDraftNoteCreatedOutput{DraftNote: out, Help: help})
 	}
 
-	format, err := normalizeOutputFormat(format, mode)
+	format, err := NormalizeFormat(format, mode)
 	if err != nil {
 		return err
 	}
 
 	if format == "json" {
-		return writeJSON(w, out)
+		return WriteJSON(w, out)
 	}
 
 	return writeDraftNoteText(w, out)
 }
 
-func writeDraftNoteText(w io.Writer, out draftNoteOutput) error {
+func writeDraftNoteText(w io.Writer, out DraftNoteOutput) error {
 	if _, err := fmt.Fprintf(w, "draft_note: %d\npreview: %s\n", out.ID, out.Preview); err != nil {
 		return err
 	}
@@ -138,7 +138,7 @@ func writeDraftNoteText(w io.Writer, out draftNoteOutput) error {
 	return nil
 }
 
-func axiDraftNoteRowFor(out draftNoteOutput, fields []string) axiDraftNoteRow {
+func axiDraftNoteRowFor(out DraftNoteOutput, fields []string) axiDraftNoteRow {
 	row := axiDraftNoteRow{
 		ID:      out.ID,
 		File:    out.File,
@@ -158,51 +158,51 @@ func axiDraftNoteRowFor(out draftNoteOutput, fields []string) axiDraftNoteRow {
 	return row
 }
 
-func writeDraftNoteList(w io.Writer, format string, mode commandMode, drafts []draftNoteOutput, paging mrListPaging, fields []string, iid int64, hints *mrHintContext) error {
-	if mode == commandModeAxi {
+func WriteDraftNoteList(w io.Writer, format string, mode Mode, drafts []DraftNoteOutput, paging MRListPaging, fields []string, iid int64, hints *MRHintContext) error {
+	if mode == ModeAxi {
 		rows := make([]axiDraftNoteRow, 0, len(drafts))
 		for _, draft := range drafts {
 			rows = append(rows, axiDraftNoteRowFor(draft, fields))
 		}
 
-		return writeAxi(w, format, axiDraftNoteListOutput{
+		return WriteAxi(w, format, axiDraftNoteListOutput{
 			DraftNotes: rows,
-			Count:      mrListCountLine(len(rows), paging),
-			Total:      paging.totalItems,
-			Page:       paging.page,
-			TotalPages: paging.totalPages,
+			Count:      MRListCountLine(len(rows), paging),
+			Total:      paging.TotalItems,
+			Page:       paging.Page,
+			TotalPages: paging.TotalPages,
 			Help:       draftNoteListHelp(len(rows), paging, iid, hints),
 		})
 	}
 
-	format, err := normalizeOutputFormat(format, mode)
+	format, err := NormalizeFormat(format, mode)
 	if err != nil {
 		return err
 	}
 
 	if format == "json" {
-		return writeJSON(w, draftNoteListOutput{
+		return WriteJSON(w, draftNoteListOutput{
 			DraftNotes: drafts,
 			Count:      len(drafts),
-			Total:      paging.totalItems,
-			Page:       paging.page,
-			TotalPages: paging.totalPages,
+			Total:      paging.TotalItems,
+			Page:       paging.Page,
+			TotalPages: paging.TotalPages,
 		})
 	}
 
 	return renderDraftNoteTable(w, drafts, paging)
 }
 
-func draftNoteListHelp(count int, paging mrListPaging, iid int64, hints *mrHintContext) []string {
-	suffix := hints.projectSuffix()
+func draftNoteListHelp(count int, paging MRListPaging, iid int64, hints *MRHintContext) []string {
+	suffix := hints.ProjectSuffix()
 
 	if count == 0 {
-		if paging.totalItems > 0 {
+		if paging.TotalItems > 0 {
 			return []string{fmt.Sprintf(
 				"Page %d is past the end (%d pending drafts, %d pages) — run `mr drafts %d --page 1%s`",
-				paging.page,
-				paging.totalItems,
-				paging.totalPages,
+				paging.Page,
+				paging.TotalItems,
+				paging.TotalPages,
 				iid,
 				suffix,
 			)}
@@ -222,11 +222,11 @@ func draftNoteListHelp(count int, paging mrListPaging, iid int64, hints *mrHintC
 		iid,
 		suffix,
 	)}
-	if paging.totalPages > paging.page {
+	if paging.TotalPages > paging.Page {
 		help = append(help, fmt.Sprintf(
 			"Run `mr drafts %d --page %d%s` for the next page",
 			iid,
-			paging.page+1,
+			paging.Page+1,
 			suffix,
 		))
 	}
@@ -234,7 +234,7 @@ func draftNoteListHelp(count int, paging mrListPaging, iid int64, hints *mrHintC
 	return help
 }
 
-type draftPublishResult struct {
+type DraftPublishResult struct {
 	ID    *int64 `json:"id,omitempty" toon:"id,omitempty"`
 	All   bool   `json:"all,omitempty" toon:"all,omitempty"`
 	Count int    `json:"count" toon:"count"`
@@ -242,37 +242,37 @@ type draftPublishResult struct {
 }
 
 type axiDraftPublishOutput struct {
-	Published draftPublishResult `json:"published" toon:"published"`
+	Published DraftPublishResult `json:"published" toon:"published"`
 	Help      []string           `json:"help,omitempty" toon:"help,omitempty"`
 }
 
-func writeDraftNotesPublished(w io.Writer, format string, mode commandMode, result draftPublishResult, iid int64, hints *mrHintContext) error {
-	if mode == commandModeAxi {
+func WriteDraftNotesPublished(w io.Writer, format string, mode Mode, result DraftPublishResult, iid int64, hints *MRHintContext) error {
+	if mode == ModeAxi {
 		var help []string
 		if result.Noop {
 			help = append(help, fmt.Sprintf(
 				"Nothing was pending — create draft notes with `mr comment %d --draft --body <text>%s`",
 				iid,
-				hints.projectSuffix(),
+				hints.ProjectSuffix(),
 			))
 		} else {
 			help = append(help, fmt.Sprintf(
 				"Run `mr discussions %d%s` to see the published threads",
 				iid,
-				hints.projectSuffix(),
+				hints.ProjectSuffix(),
 			))
 		}
 
-		return writeAxi(w, format, axiDraftPublishOutput{Published: result, Help: help})
+		return WriteAxi(w, format, axiDraftPublishOutput{Published: result, Help: help})
 	}
 
-	format, err := normalizeOutputFormat(format, mode)
+	format, err := NormalizeFormat(format, mode)
 	if err != nil {
 		return err
 	}
 
 	if format == "json" {
-		return writeJSON(w, result)
+		return WriteJSON(w, result)
 	}
 
 	switch {
@@ -287,34 +287,34 @@ func writeDraftNotesPublished(w io.Writer, format string, mode commandMode, resu
 	return err
 }
 
-type draftDeleteResult struct {
+type DraftDeleteResult struct {
 	ID   int64 `json:"id" toon:"id"`
 	Noop bool  `json:"noop,omitempty" toon:"noop,omitempty"`
 }
 
 type axiDraftDeleteOutput struct {
-	Deleted draftDeleteResult `json:"deleted" toon:"deleted"`
+	Deleted DraftDeleteResult `json:"deleted" toon:"deleted"`
 	Help    []string          `json:"help,omitempty" toon:"help,omitempty"`
 }
 
-func writeDraftNoteDeleted(w io.Writer, format string, mode commandMode, result draftDeleteResult, iid int64, hints *mrHintContext) error {
-	if mode == commandModeAxi {
+func WriteDraftNoteDeleted(w io.Writer, format string, mode Mode, result DraftDeleteResult, iid int64, hints *MRHintContext) error {
+	if mode == ModeAxi {
 		help := []string{fmt.Sprintf(
 			"Run `mr drafts %d%s` to list the remaining drafts",
 			iid,
-			hints.projectSuffix(),
+			hints.ProjectSuffix(),
 		)}
 
-		return writeAxi(w, format, axiDraftDeleteOutput{Deleted: result, Help: help})
+		return WriteAxi(w, format, axiDraftDeleteOutput{Deleted: result, Help: help})
 	}
 
-	format, err := normalizeOutputFormat(format, mode)
+	format, err := NormalizeFormat(format, mode)
 	if err != nil {
 		return err
 	}
 
 	if format == "json" {
-		return writeJSON(w, result)
+		return WriteJSON(w, result)
 	}
 
 	if result.Noop {

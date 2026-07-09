@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/shabashab/community-gitlab-cli/internal/cli/output"
 	"github.com/spf13/cobra"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
@@ -149,14 +150,14 @@ func runMRMerge(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOpti
 	}
 
 	ctx := commandContext(cmd)
-	hints := &mrHintContext{project: explicitProjectRef(projOpts)}
+	hints := &output.MRHintContext{Project: explicitProjectRef(projOpts)}
 
 	current, err := getMergeRequestForFinalization(ctx, client, resolved.ref, iid)
 	if err != nil {
 		return err
 	}
 	if current.State == mergeRequestStateMerged {
-		return writeMergeRequestAction(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, current, mrFinalizeActionMerge, true, hints)
+		return output.WriteMergeRequestAction(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, current, mrFinalizeActionMerge, true, hints)
 	}
 
 	acceptOpts := buildAcceptMergeRequestOptions(opts, mergeMessage, squashMessage)
@@ -172,10 +173,10 @@ func runMRMerge(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOpti
 			return wrapped
 		}
 
-		return writeMergeRequestAction(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, verified, mrFinalizeActionMerge, true, hints)
+		return output.WriteMergeRequestAction(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, verified, mrFinalizeActionMerge, true, hints)
 	}
 
-	return writeMergeRequestAction(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, merged, mrFinalizeActionMerge, false, hints)
+	return output.WriteMergeRequestAction(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, merged, mrFinalizeActionMerge, false, hints)
 }
 
 func runMRStateEvent(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOptions, iid int64, action, desiredState string) error {
@@ -190,14 +191,14 @@ func runMRStateEvent(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projec
 	}
 
 	ctx := commandContext(cmd)
-	hints := &mrHintContext{project: explicitProjectRef(projOpts)}
+	hints := &output.MRHintContext{Project: explicitProjectRef(projOpts)}
 
 	current, err := getMergeRequestForFinalization(ctx, client, resolved.ref, iid)
 	if err != nil {
 		return err
 	}
 	if current.State == desiredState {
-		return writeMergeRequestAction(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, current, action, true, hints)
+		return output.WriteMergeRequestAction(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, current, action, true, hints)
 	}
 
 	stateEvent := action
@@ -218,10 +219,10 @@ func runMRStateEvent(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projec
 			return wrapped
 		}
 
-		return writeMergeRequestAction(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, verified, action, true, hints)
+		return output.WriteMergeRequestAction(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, verified, action, true, hints)
 	}
 
-	return writeMergeRequestAction(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, updated, action, false, hints)
+	return output.WriteMergeRequestAction(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, updated, action, false, hints)
 }
 
 func buildAcceptMergeRequestOptions(opts *mrMergeOptions, mergeMessage, squashMessage string) *gitlab.AcceptMergeRequestOptions {

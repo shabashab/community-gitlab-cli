@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/shabashab/community-gitlab-cli/internal/cli/output"
 	"github.com/shabashab/community-gitlab-cli/internal/repo"
 	"github.com/spf13/cobra"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
@@ -23,8 +24,6 @@ var (
 var currentBranchFunc = repo.CurrentBranch
 
 const (
-	defaultMergeRequestListLimit int64 = 20
-	descriptionTruncateLimit           = 500
 
 	// currentMergeRequestRef is the literal ref that resolves to the merge
 	// request of the currently checked out git branch.
@@ -66,7 +65,7 @@ type mrListOptions struct {
 func newMRListOptions() *mrListOptions {
 	return &mrListOptions{
 		state: "opened",
-		limit: defaultMergeRequestListLimit,
+		limit: output.DefaultMergeRequestListLimit,
 		page:  1,
 	}
 }
@@ -394,7 +393,7 @@ func resolveCurrentMergeRequestIID(cmd *cobra.Command, rootOpts *rootOptions, pr
 	}
 
 	bin := rootOpts.binName
-	suffix := (&mrHintContext{project: explicitProjectRef(projOpts)}).projectSuffix()
+	suffix := (&output.MRHintContext{Project: explicitProjectRef(projOpts)}).ProjectSuffix()
 
 	switch len(mergeRequests) {
 	case 0:
@@ -439,9 +438,9 @@ func runMRView(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOptio
 		return err
 	}
 
-	hints := &mrHintContext{project: explicitProjectRef(projOpts)}
+	hints := &output.MRHintContext{Project: explicitProjectRef(projOpts)}
 
-	return writeMergeRequestWithApprovals(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, mergeRequest, approvals, opts.full, hints)
+	return output.WriteMergeRequestWithApprovals(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, mergeRequest, approvals, opts.full, hints)
 }
 
 func runMRList(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOptions, opts *mrListOptions) error {
@@ -455,15 +454,15 @@ func runMRList(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOptio
 		return err
 	}
 
-	hints := &mrHintContext{project: explicitProjectRef(projOpts), limit: opts.limit}
+	hints := &output.MRHintContext{Project: explicitProjectRef(projOpts), Limit: opts.limit}
 
-	return writeMergeRequestList(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, mergeRequests, paging, opts.fields, hints)
+	return output.WriteMergeRequestList(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, mergeRequests, paging, opts.fields, hints)
 }
 
-func fetchMergeRequestList(cmd *cobra.Command, rootOpts *rootOptions, resolved resolvedProject, opts *mrListOptions) ([]*gitlab.BasicMergeRequest, mrListPaging, error) {
+func fetchMergeRequestList(cmd *cobra.Command, rootOpts *rootOptions, resolved resolvedProject, opts *mrListOptions) ([]*gitlab.BasicMergeRequest, output.MRListPaging, error) {
 	client, err := rootOpts.newGitLabClientWithBaseURLFallback(resolved.baseURL)
 	if err != nil {
-		return nil, mrListPaging{}, err
+		return nil, output.MRListPaging{}, err
 	}
 
 	mergeRequests, resp, err := client.MergeRequests.ListProjectMergeRequests(
@@ -472,16 +471,16 @@ func fetchMergeRequestList(cmd *cobra.Command, rootOpts *rootOptions, resolved r
 		gitlab.WithContext(commandContext(cmd)),
 	)
 	if err != nil {
-		return nil, mrListPaging{}, fmt.Errorf("list merge requests in project %q: %w", resolved.ref, err)
+		return nil, output.MRListPaging{}, fmt.Errorf("list merge requests in project %q: %w", resolved.ref, err)
 	}
 
-	paging := mrListPaging{page: opts.page}
+	paging := output.MRListPaging{Page: opts.page}
 	if resp != nil {
 		if resp.CurrentPage > 0 {
-			paging.page = resp.CurrentPage
+			paging.Page = resp.CurrentPage
 		}
-		paging.totalItems = resp.TotalItems
-		paging.totalPages = resp.TotalPages
+		paging.TotalItems = resp.TotalItems
+		paging.TotalPages = resp.TotalPages
 	}
 
 	return mergeRequests, paging, nil

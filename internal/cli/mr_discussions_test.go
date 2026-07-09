@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shabashab/community-gitlab-cli/internal/cli/output"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 
@@ -179,7 +180,7 @@ func TestSummarizeDiscussion(t *testing.T) {
 	resolvedAt := discussionTestTime(t, "2026-07-02T10:00:00Z")
 
 	t.Run("resolved thread", func(t *testing.T) {
-		summary, ok := summarizeDiscussion(&gitlab.Discussion{
+		summary, ok := output.SummarizeDiscussion(&gitlab.Discussion{
 			ID: strings.ToUpper(discussionIDResolved),
 			Notes: []*gitlab.Note{
 				{
@@ -199,26 +200,26 @@ func TestSummarizeDiscussion(t *testing.T) {
 		if !ok {
 			t.Fatal("expected ok for a discussion with notes")
 		}
-		if summary.state != "resolved" || !summary.resolvable || !summary.resolved {
+		if summary.State != "resolved" || !summary.Resolvable || !summary.Resolved {
 			t.Errorf("expected resolved state, got %+v", summary)
 		}
-		if summary.id != discussionIDResolved {
-			t.Errorf("expected lowercased id, got %q", summary.id)
+		if summary.ID != discussionIDResolved {
+			t.Errorf("expected lowercased id, got %q", summary.ID)
 		}
-		if summary.resolvedBy != "mona" || summary.resolvedAt == nil {
+		if summary.ResolvedBy != "mona" || summary.ResolvedAt == nil {
 			t.Errorf("expected resolver metadata, got %+v", summary)
 		}
-		if summary.file != "internal/cli/mr.go" || summary.line != 42 {
-			t.Errorf("expected diff position, got file=%q line=%d", summary.file, summary.line)
+		if summary.File != "internal/cli/mr.go" || summary.Line != 42 {
+			t.Errorf("expected diff position, got file=%q line=%d", summary.File, summary.Line)
 		}
-		if summary.noteType != string(gitlab.DiffNote) {
-			t.Errorf("expected DiffNote type, got %q", summary.noteType)
+		if summary.NoteType != string(gitlab.DiffNote) {
+			t.Errorf("expected DiffNote type, got %q", summary.NoteType)
 		}
 	})
 
 	t.Run("updated_at is the newest note update with created_at fallback", func(t *testing.T) {
 		later := discussionTestTime(t, "2026-07-05T09:00:00Z")
-		summary, ok := summarizeDiscussion(&gitlab.Discussion{
+		summary, ok := output.SummarizeDiscussion(&gitlab.Discussion{
 			ID: discussionIDUnresolvedAlice,
 			Notes: []*gitlab.Note{
 				{Author: gitlab.NoteAuthor{Username: "alice"}, CreatedAt: &created, UpdatedAt: &updated, Resolvable: true},
@@ -228,32 +229,32 @@ func TestSummarizeDiscussion(t *testing.T) {
 		if !ok {
 			t.Fatal("expected ok")
 		}
-		if !summary.updatedAt.Equal(later) {
-			t.Errorf("expected updatedAt %v, got %v", later, summary.updatedAt)
+		if !summary.UpdatedAt.Equal(later) {
+			t.Errorf("expected updatedAt %v, got %v", later, summary.UpdatedAt)
 		}
-		if !summary.createdAt.Equal(created) {
-			t.Errorf("expected createdAt from first note, got %v", summary.createdAt)
+		if !summary.CreatedAt.Equal(created) {
+			t.Errorf("expected createdAt from first note, got %v", summary.CreatedAt)
 		}
-		if summary.state != "unresolved" {
-			t.Errorf("expected unresolved, got %q", summary.state)
+		if summary.State != "unresolved" {
+			t.Errorf("expected unresolved, got %q", summary.State)
 		}
 	})
 
 	t.Run("non-resolvable thread has state none", func(t *testing.T) {
-		summary, ok := summarizeDiscussion(&gitlab.Discussion{
+		summary, ok := output.SummarizeDiscussion(&gitlab.Discussion{
 			ID:    discussionIDSystem,
 			Notes: []*gitlab.Note{{Author: gitlab.NoteAuthor{Username: "alice"}, CreatedAt: &created}},
 		})
 		if !ok {
 			t.Fatal("expected ok")
 		}
-		if summary.state != "none" || summary.resolvable {
+		if summary.State != "none" || summary.Resolvable {
 			t.Errorf("expected non-resolvable none state, got %+v", summary)
 		}
 	})
 
 	t.Run("position falls back to old path and line", func(t *testing.T) {
-		summary, _ := summarizeDiscussion(&gitlab.Discussion{
+		summary, _ := output.SummarizeDiscussion(&gitlab.Discussion{
 			ID: discussionIDUnresolvedAlice,
 			Notes: []*gitlab.Note{{
 				Author:    gitlab.NoteAuthor{Username: "alice"},
@@ -261,26 +262,26 @@ func TestSummarizeDiscussion(t *testing.T) {
 				Position:  &gitlab.NotePosition{OldPath: "legacy.go", OldLine: 7},
 			}},
 		})
-		if summary.file != "legacy.go" || summary.line != 7 {
-			t.Errorf("expected old path fallback, got file=%q line=%d", summary.file, summary.line)
+		if summary.File != "legacy.go" || summary.Line != 7 {
+			t.Errorf("expected old path fallback, got file=%q line=%d", summary.File, summary.Line)
 		}
 	})
 
 	t.Run("all-system detection", func(t *testing.T) {
-		summary, _ := summarizeDiscussion(&gitlab.Discussion{
+		summary, _ := output.SummarizeDiscussion(&gitlab.Discussion{
 			ID:    discussionIDSystem,
 			Notes: []*gitlab.Note{{Author: gitlab.NoteAuthor{Username: "alice"}, System: true, CreatedAt: &created}},
 		})
-		if !summary.system {
+		if !summary.System {
 			t.Error("expected all-system discussion to be flagged system")
 		}
 	})
 
 	t.Run("nil and empty discussions are skipped", func(t *testing.T) {
-		if _, ok := summarizeDiscussion(nil); ok {
+		if _, ok := output.SummarizeDiscussion(nil); ok {
 			t.Error("expected ok=false for nil discussion")
 		}
-		if _, ok := summarizeDiscussion(&gitlab.Discussion{ID: discussionIDSystem}); ok {
+		if _, ok := output.SummarizeDiscussion(&gitlab.Discussion{ID: discussionIDSystem}); ok {
 			t.Error("expected ok=false for discussion without notes")
 		}
 	})
@@ -288,34 +289,34 @@ func TestSummarizeDiscussion(t *testing.T) {
 
 func TestDiscussionPreviewFlattensAndTruncates(t *testing.T) {
 	long := strings.Repeat("word ", 30) // 150 runes flattened to 149
-	got := discussionPreview("line one\n\n  " + long)
+	got := output.DiscussionPreview("line one\n\n  " + long)
 	if strings.Contains(got, "\n") {
 		t.Errorf("expected single-line preview, got %q", got)
 	}
-	if runes := []rune(got); len(runes) != discussionPreviewLimit+1 || runes[len(runes)-1] != '…' {
-		t.Errorf("expected %d runes ending with ellipsis, got %d: %q", discussionPreviewLimit+1, len(runes), got)
+	if runes := []rune(got); len(runes) != output.DiscussionPreviewLimit+1 || runes[len(runes)-1] != '…' {
+		t.Errorf("expected %d runes ending with ellipsis, got %d: %q", output.DiscussionPreviewLimit+1, len(runes), got)
 	}
 
-	if got := discussionPreview("short body"); got != "short body" {
+	if got := output.DiscussionPreview("short body"); got != "short body" {
 		t.Errorf("expected short body unchanged, got %q", got)
 	}
-	if got := discussionPreview(""); got != "" {
+	if got := output.DiscussionPreview(""); got != "" {
 		t.Errorf("expected empty preview for empty body, got %q", got)
 	}
 }
 
 func TestFilterDiscussionSummaries(t *testing.T) {
-	summaries := []discussionSummary{
-		{id: "1", author: "Alice", state: "unresolved", resolvable: true},
-		{id: "2", author: "bob", state: "resolved", resolvable: true, resolved: true},
-		{id: "3", author: "carol", state: "none"},
-		{id: "4", author: "dave", state: "none", system: true},
+	summaries := []output.DiscussionSummary{
+		{ID: "1", Author: "Alice", State: "unresolved", Resolvable: true},
+		{ID: "2", Author: "bob", State: "resolved", Resolvable: true, Resolved: true},
+		{ID: "3", Author: "carol", State: "none"},
+		{ID: "4", Author: "dave", State: "none", System: true},
 	}
 
-	ids := func(filtered []discussionSummary) string {
+	ids := func(filtered []output.DiscussionSummary) string {
 		var out []string
 		for _, summary := range filtered {
-			out = append(out, summary.id)
+			out = append(out, summary.ID)
 		}
 		return strings.Join(out, ",")
 	}
@@ -344,31 +345,31 @@ func TestFilterDiscussionSummaries(t *testing.T) {
 
 func TestSortAndPageDiscussionSummaries(t *testing.T) {
 	base := discussionTestTime(t, "2026-07-01T00:00:00Z")
-	summaries := make([]discussionSummary, 0, 5)
+	summaries := make([]output.DiscussionSummary, 0, 5)
 	for i := range 5 {
-		summaries = append(summaries, discussionSummary{
-			id:        fmt.Sprintf("%d", i+1),
-			createdAt: base.Add(time.Duration(i) * time.Hour),
-			updatedAt: base.Add(time.Duration(5-i) * time.Hour),
+		summaries = append(summaries, output.DiscussionSummary{
+			ID:        fmt.Sprintf("%d", i+1),
+			CreatedAt: base.Add(time.Duration(i) * time.Hour),
+			UpdatedAt: base.Add(time.Duration(5-i) * time.Hour),
 		})
 	}
 
 	sortDiscussionSummaries(summaries, "updated_at", "desc")
-	if summaries[0].id != "1" || summaries[4].id != "5" {
+	if summaries[0].ID != "1" || summaries[4].ID != "5" {
 		t.Errorf("expected updated_at desc order 1..5, got %+v", summaries)
 	}
 
 	sortDiscussionSummaries(summaries, "created_at", "asc")
 	rows, paging := pageDiscussionSummaries(summaries, 2, 2)
-	if len(rows) != 2 || rows[0].id != "3" || rows[1].id != "4" {
+	if len(rows) != 2 || rows[0].ID != "3" || rows[1].ID != "4" {
 		t.Errorf("expected page 2 to hold items 3 and 4, got %+v", rows)
 	}
-	if paging.totalItems != 5 || paging.totalPages != 3 || paging.page != 2 {
+	if paging.TotalItems != 5 || paging.TotalPages != 3 || paging.Page != 2 {
 		t.Errorf("expected exact paging totals, got %+v", paging)
 	}
 
 	rows, paging = pageDiscussionSummaries(summaries, 9, 2)
-	if len(rows) != 0 || paging.totalItems != 5 {
+	if len(rows) != 0 || paging.TotalItems != 5 {
 		t.Errorf("expected empty page past the end with exact totals, got %d rows, %+v", len(rows), paging)
 	}
 }
@@ -866,24 +867,24 @@ func TestMRDiscussionResolveNonResolvable(t *testing.T) {
 func TestWriteDiscussionListStandardModes(t *testing.T) {
 	created := discussionTestTime(t, "2026-07-01T08:00:00Z")
 	updated := discussionTestTime(t, "2026-07-03T12:00:00Z")
-	summaries := []discussionSummary{
+	summaries := []output.DiscussionSummary{
 		{
-			id: discussionIDUnresolvedAlice, author: "alice", state: "unresolved", resolvable: true,
-			notesCount: 2, noteType: "DiffNote", createdAt: created, updatedAt: updated,
-			preview: "This branch check looks inverted",
+			ID: discussionIDUnresolvedAlice, Author: "alice", State: "unresolved", Resolvable: true,
+			NotesCount: 2, NoteType: "DiffNote", CreatedAt: created, UpdatedAt: updated,
+			Preview: "This branch check looks inverted",
 		},
 		{
-			id: discussionIDResolved, author: "mona", state: "resolved", resolvable: true, resolved: true,
-			notesCount: 1, noteType: "DiscussionNote", createdAt: created, updatedAt: created,
-			preview: "Typo in the docstring",
+			ID: discussionIDResolved, Author: "mona", State: "resolved", Resolvable: true, Resolved: true,
+			NotesCount: 1, NoteType: "DiscussionNote", CreatedAt: created, UpdatedAt: created,
+			Preview: "Typo in the docstring",
 		},
 	}
-	paging := mrListPaging{page: 1, totalItems: 5, totalPages: 3}
+	paging := output.MRListPaging{Page: 1, TotalItems: 5, TotalPages: 3}
 
 	t.Run("text table", func(t *testing.T) {
 		var out bytes.Buffer
-		if err := writeDiscussionList(&out, "text", commandModeStandard, summaries, paging, nil, nil); err != nil {
-			t.Fatalf("writeDiscussionList returned error: %v", err)
+		if err := output.WriteDiscussionList(&out, "text", commandModeStandard, summaries, paging, nil, nil); err != nil {
+			t.Fatalf("output.WriteDiscussionList returned error: %v", err)
 		}
 		got := out.String()
 
@@ -899,8 +900,8 @@ func TestWriteDiscussionListStandardModes(t *testing.T) {
 
 	t.Run("empty text table", func(t *testing.T) {
 		var out bytes.Buffer
-		if err := writeDiscussionList(&out, "text", commandModeStandard, nil, mrListPaging{page: 1}, nil, nil); err != nil {
-			t.Fatalf("writeDiscussionList returned error: %v", err)
+		if err := output.WriteDiscussionList(&out, "text", commandModeStandard, nil, output.MRListPaging{Page: 1}, nil, nil); err != nil {
+			t.Fatalf("output.WriteDiscussionList returned error: %v", err)
 		}
 		if !strings.Contains(out.String(), "No discussion threads found") {
 			t.Errorf("expected empty-state message, got:\n%s", out.String())
@@ -909,8 +910,8 @@ func TestWriteDiscussionListStandardModes(t *testing.T) {
 
 	t.Run("json", func(t *testing.T) {
 		var out bytes.Buffer
-		if err := writeDiscussionList(&out, "json", commandModeStandard, summaries, paging, nil, nil); err != nil {
-			t.Fatalf("writeDiscussionList returned error: %v", err)
+		if err := output.WriteDiscussionList(&out, "json", commandModeStandard, summaries, paging, nil, nil); err != nil {
+			t.Fatalf("output.WriteDiscussionList returned error: %v", err)
 		}
 		got := out.String()
 
@@ -943,8 +944,8 @@ func TestWriteDiscussionActionStandardModes(t *testing.T) {
 
 	t.Run("text", func(t *testing.T) {
 		var out bytes.Buffer
-		if err := writeDiscussionAction(&out, "text", commandModeStandard, discussion, "resolve", true, 123, nil); err != nil {
-			t.Fatalf("writeDiscussionAction returned error: %v", err)
+		if err := output.WriteDiscussionAction(&out, "text", commandModeStandard, discussion, "resolve", true, 123, nil); err != nil {
+			t.Fatalf("output.WriteDiscussionAction returned error: %v", err)
 		}
 		for _, want := range []string{"already resolved (no-op)", "discussion: " + discussionIDResolved, "resolvable: true"} {
 			if !strings.Contains(out.String(), want) {
@@ -955,8 +956,8 @@ func TestWriteDiscussionActionStandardModes(t *testing.T) {
 
 	t.Run("json", func(t *testing.T) {
 		var out bytes.Buffer
-		if err := writeDiscussionAction(&out, "json", commandModeStandard, discussion, "resolve", false, 123, nil); err != nil {
-			t.Fatalf("writeDiscussionAction returned error: %v", err)
+		if err := output.WriteDiscussionAction(&out, "json", commandModeStandard, discussion, "resolve", false, 123, nil); err != nil {
+			t.Fatalf("output.WriteDiscussionAction returned error: %v", err)
 		}
 		for _, want := range []string{`"discussion": {`, fmt.Sprintf("%q", discussionIDResolved), `"action": "resolve"`} {
 			if !strings.Contains(out.String(), want) {

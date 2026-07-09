@@ -1,4 +1,4 @@
-package cli
+package output
 
 import (
 	"errors"
@@ -60,21 +60,21 @@ type axiMergeRequestApprovalOutput struct {
 	Help     []string `json:"help,omitempty" toon:"help,omitempty"`
 }
 
-func writeMergeRequestApproval(w io.Writer, format string, mode commandMode, approvals *gitlab.MergeRequestApprovals, full bool, help []string) error {
+func WriteMergeRequestApproval(w io.Writer, format string, mode Mode, approvals *gitlab.MergeRequestApprovals, full bool, help []string) error {
 	if approvals == nil {
 		return errors.New("gitlab api returned an empty merge request approvals response")
 	}
 
-	if mode == commandModeAxi {
+	if mode == ModeAxi {
 		var out any = mergeRequestApprovalCompactFromAPI(approvals)
 		if full {
 			out = mergeRequestApprovalFullFromAPI(approvals)
 		}
 
-		return writeAxi(w, format, axiMergeRequestApprovalOutput{Approval: out, Help: help})
+		return WriteAxi(w, format, axiMergeRequestApprovalOutput{Approval: out, Help: help})
 	}
 
-	format, err := normalizeOutputFormat(format, mode)
+	format, err := NormalizeFormat(format, mode)
 	if err != nil {
 		return err
 	}
@@ -82,7 +82,7 @@ func writeMergeRequestApproval(w io.Writer, format string, mode commandMode, app
 	if full {
 		out := mergeRequestApprovalFullFromAPI(approvals)
 		if format == "json" {
-			return writeJSON(w, out)
+			return WriteJSON(w, out)
 		}
 
 		return writeMergeRequestApprovalFullText(w, out)
@@ -90,7 +90,7 @@ func writeMergeRequestApproval(w io.Writer, format string, mode commandMode, app
 
 	out := mergeRequestApprovalCompactFromAPI(approvals)
 	if format == "json" {
-		return writeJSON(w, out)
+		return WriteJSON(w, out)
 	}
 
 	return writeMergeRequestApprovalCompactText(w, out)

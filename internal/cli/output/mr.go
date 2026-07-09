@@ -1,4 +1,4 @@
-package cli
+package output
 
 import (
 	"errors"
@@ -21,10 +21,10 @@ type mergeRequestRowOutput struct {
 	WebURL       string `json:"web_url" toon:"web_url"`
 }
 
-// axiMergeRequestRow is the compact axi list row. Optional fields are
+// AxiMergeRequestRow is the compact axi list row. Optional fields are
 // pointers with omitempty so --fields controls exactly which columns are
 // emitted while every row stays uniform (required for TOON tabular output).
-type axiMergeRequestRow struct {
+type AxiMergeRequestRow struct {
 	IID          int64   `json:"iid" toon:"iid"`
 	Title        string  `json:"title" toon:"title"`
 	State        string  `json:"state" toon:"state"`
@@ -104,7 +104,7 @@ type mergeRequestListOutput struct {
 }
 
 type axiMergeRequestListOutput struct {
-	MergeRequests []axiMergeRequestRow `json:"merge_requests" toon:"merge_requests"`
+	MergeRequests []AxiMergeRequestRow `json:"merge_requests" toon:"merge_requests"`
 	Count         string               `json:"count" toon:"count"`
 	Total         int64                `json:"total" toon:"-"`
 	Page          int64                `json:"page" toon:"-"`
@@ -112,11 +112,11 @@ type axiMergeRequestListOutput struct {
 	Help          []string             `json:"help,omitempty" toon:"help,omitempty"`
 }
 
-func writeMergeRequest(w io.Writer, format string, mode commandMode, mergeRequest *gitlab.MergeRequest, full bool, hints *mrHintContext) error {
-	return writeMergeRequestWithApprovals(w, format, mode, mergeRequest, nil, full, hints)
+func WriteMergeRequest(w io.Writer, format string, mode Mode, mergeRequest *gitlab.MergeRequest, full bool, hints *MRHintContext) error {
+	return WriteMergeRequestWithApprovals(w, format, mode, mergeRequest, nil, full, hints)
 }
 
-func writeMergeRequestWithApprovals(w io.Writer, format string, mode commandMode, mergeRequest *gitlab.MergeRequest, approvals *gitlab.MergeRequestApprovals, full bool, hints *mrHintContext) error {
+func WriteMergeRequestWithApprovals(w io.Writer, format string, mode Mode, mergeRequest *gitlab.MergeRequest, approvals *gitlab.MergeRequestApprovals, full bool, hints *MRHintContext) error {
 	if mergeRequest == nil {
 		return errors.New("gitlab api returned an empty merge request response")
 	}
@@ -128,7 +128,7 @@ func writeMergeRequestWithApprovals(w io.Writer, format string, mode commandMode
 		out.Approval = &approval
 	}
 
-	if mode == commandModeAxi {
+	if mode == ModeAxi {
 		var view any = out
 		if !full {
 			view = compactMergeRequestView(out)
@@ -141,32 +141,32 @@ func writeMergeRequestWithApprovals(w io.Writer, format string, mode commandMode
 			help = []string{fmt.Sprintf(
 				"Run `mr view %d --full%s` for the complete description and all fields",
 				out.IID,
-				hints.projectSuffix(),
+				hints.ProjectSuffix(),
 			)}
 		}
 
-		return writeAxi(w, format, axiMergeRequestViewOutput{MergeRequest: view, Help: help})
+		return WriteAxi(w, format, axiMergeRequestViewOutput{MergeRequest: view, Help: help})
 	}
 
-	format, err := normalizeOutputFormat(format, mode)
+	format, err := NormalizeFormat(format, mode)
 	if err != nil {
 		return err
 	}
 
 	if format == "json" {
-		return writeJSON(w, out)
+		return WriteJSON(w, out)
 	}
 
 	return writeMergeRequestText(w, out, full)
 }
 
-// writeMergeRequestCreated renders a freshly created or updated merge
+// WriteMergeRequestCreated renders a freshly created or updated merge
 // request. It reuses the view's merge_request shape so agents parse one
 // schema, but unlike the self-contained view a mutation has a genuine next
 // step, so the axi variant always suggests checking merge status.
-func writeMergeRequestCreated(w io.Writer, format string, mode commandMode, mergeRequest *gitlab.MergeRequest, hints *mrHintContext) error {
-	if mode != commandModeAxi {
-		return writeMergeRequest(w, format, mode, mergeRequest, false, hints)
+func WriteMergeRequestCreated(w io.Writer, format string, mode Mode, mergeRequest *gitlab.MergeRequest, hints *MRHintContext) error {
+	if mode != ModeAxi {
+		return WriteMergeRequest(w, format, mode, mergeRequest, false, hints)
 	}
 
 	if mergeRequest == nil {
@@ -178,23 +178,23 @@ func writeMergeRequestCreated(w io.Writer, format string, mode commandMode, merg
 	help := []string{fmt.Sprintf(
 		"Run `mr view %d%s` to check merge status and pipeline results",
 		out.IID,
-		hints.projectSuffix(),
+		hints.ProjectSuffix(),
 	)}
 	if truncated {
 		help = append(help, fmt.Sprintf(
 			"Run `mr view %d --full%s` for the complete description and all fields",
 			out.IID,
-			hints.projectSuffix(),
+			hints.ProjectSuffix(),
 		))
 	}
 
-	return writeAxi(w, format, axiMergeRequestViewOutput{
+	return WriteAxi(w, format, axiMergeRequestViewOutput{
 		MergeRequest: compactMergeRequestView(out),
 		Help:         help,
 	})
 }
 
-func writeMergeRequestAction(w io.Writer, format string, mode commandMode, mergeRequest *gitlab.MergeRequest, action string, noop bool, hints *mrHintContext) error {
+func WriteMergeRequestAction(w io.Writer, format string, mode Mode, mergeRequest *gitlab.MergeRequest, action string, noop bool, hints *MRHintContext) error {
 	if mergeRequest == nil {
 		return errors.New("gitlab api returned an empty merge request response")
 	}
@@ -202,8 +202,8 @@ func writeMergeRequestAction(w io.Writer, format string, mode commandMode, merge
 	out, _ := mergeRequestToOutput(mergeRequest, false, mode)
 	view := compactMergeRequestView(out)
 
-	if mode == commandModeAxi {
-		return writeAxi(w, format, mergeRequestActionOutput{
+	if mode == ModeAxi {
+		return WriteAxi(w, format, mergeRequestActionOutput{
 			MergeRequest: view,
 			Action:       action,
 			Noop:         noop,
@@ -211,13 +211,13 @@ func writeMergeRequestAction(w io.Writer, format string, mode commandMode, merge
 		})
 	}
 
-	format, err := normalizeOutputFormat(format, mode)
+	format, err := NormalizeFormat(format, mode)
 	if err != nil {
 		return err
 	}
 
 	if format == "json" {
-		return writeJSON(w, mergeRequestActionOutput{
+		return WriteJSON(w, mergeRequestActionOutput{
 			MergeRequest: view,
 			Action:       action,
 			Noop:         noop,
@@ -237,8 +237,8 @@ func writeMergeRequestAction(w io.Writer, format string, mode commandMode, merge
 	return writeMergeRequestText(w, out, false)
 }
 
-func mergeRequestActionHelp(action string, iid int64, hints *mrHintContext) []string {
-	suffix := hints.projectSuffix()
+func mergeRequestActionHelp(action string, iid int64, hints *MRHintContext) []string {
+	suffix := hints.ProjectSuffix()
 
 	switch action {
 	case "close":
@@ -363,27 +363,27 @@ func writeMergeRequestText(w io.Writer, out mergeRequestOutput, full bool) error
 	return err
 }
 
-func writeMergeRequestList(w io.Writer, format string, mode commandMode, mergeRequests []*gitlab.BasicMergeRequest, paging mrListPaging, fields []string, hints *mrHintContext) error {
-	if mode == commandModeAxi {
-		rows := make([]axiMergeRequestRow, 0, len(mergeRequests))
+func WriteMergeRequestList(w io.Writer, format string, mode Mode, mergeRequests []*gitlab.BasicMergeRequest, paging MRListPaging, fields []string, hints *MRHintContext) error {
+	if mode == ModeAxi {
+		rows := make([]AxiMergeRequestRow, 0, len(mergeRequests))
 		for _, mergeRequest := range mergeRequests {
 			if mergeRequest == nil {
 				continue
 			}
-			rows = append(rows, axiMergeRequestRowFor(mergeRequest, fields))
+			rows = append(rows, AxiMergeRequestRowFor(mergeRequest, fields))
 		}
 
-		return writeAxi(w, format, axiMergeRequestListOutput{
+		return WriteAxi(w, format, axiMergeRequestListOutput{
 			MergeRequests: rows,
-			Count:         mrListCountLine(len(rows), paging),
-			Total:         paging.totalItems,
-			Page:          paging.page,
-			TotalPages:    paging.totalPages,
+			Count:         MRListCountLine(len(rows), paging),
+			Total:         paging.TotalItems,
+			Page:          paging.Page,
+			TotalPages:    paging.TotalPages,
 			Help:          mrListHelp(len(rows), paging, hints),
 		})
 	}
 
-	format, err := normalizeOutputFormat(format, mode)
+	format, err := NormalizeFormat(format, mode)
 	if err != nil {
 		return err
 	}
@@ -397,20 +397,20 @@ func writeMergeRequestList(w io.Writer, format string, mode commandMode, mergeRe
 	}
 
 	if format == "json" {
-		return writeJSON(w, mergeRequestListOutput{
+		return WriteJSON(w, mergeRequestListOutput{
 			MergeRequests: rows,
 			Count:         len(rows),
-			Total:         paging.totalItems,
-			Page:          paging.page,
-			TotalPages:    paging.totalPages,
+			Total:         paging.TotalItems,
+			Page:          paging.Page,
+			TotalPages:    paging.TotalPages,
 		})
 	}
 
 	return renderMergeRequestTable(w, rows, paging)
 }
 
-func mrListHelp(count int, paging mrListPaging, hints *mrHintContext) []string {
-	suffix := hints.projectSuffix()
+func mrListHelp(count int, paging MRListPaging, hints *MRHintContext) []string {
+	suffix := hints.ProjectSuffix()
 
 	if count == 0 {
 		return []string{
@@ -420,16 +420,16 @@ func mrListHelp(count int, paging mrListPaging, hints *mrHintContext) []string {
 
 	help := []string{fmt.Sprintf("Run `mr view <iid>%s` for details", suffix)}
 	switch {
-	case paging.totalPages > paging.page:
-		help = append(help, fmt.Sprintf("Run `mr list --page %d%s` for the next page", paging.page+1, suffix))
-	case paging.totalItems == 0 && hints != nil && int64(count) >= hints.limit:
-		help = append(help, fmt.Sprintf("More results may exist — run `mr list --page %d%s`", paging.page+1, suffix))
+	case paging.TotalPages > paging.Page:
+		help = append(help, fmt.Sprintf("Run `mr list --page %d%s` for the next page", paging.Page+1, suffix))
+	case paging.TotalItems == 0 && hints != nil && int64(count) >= hints.Limit:
+		help = append(help, fmt.Sprintf("More results may exist — run `mr list --page %d%s`", paging.Page+1, suffix))
 	}
 
 	return help
 }
 
-func mergeRequestToOutput(mergeRequest *gitlab.MergeRequest, full bool, mode commandMode) (mergeRequestOutput, bool) {
+func mergeRequestToOutput(mergeRequest *gitlab.MergeRequest, full bool, mode Mode) (mergeRequestOutput, bool) {
 	out := mergeRequestOutput{
 		IID:                         mergeRequest.IID,
 		Title:                       mergeRequest.Title,
@@ -470,7 +470,7 @@ func mergeRequestToOutput(mergeRequest *gitlab.MergeRequest, full bool, mode com
 
 	truncated := false
 	if !full {
-		out.Description, truncated = truncateDescription(out.Description, descriptionTruncateLimit, mode)
+		out.Description, truncated = TruncateDescription(out.Description, descriptionTruncateLimit, mode)
 	}
 
 	return out, truncated
@@ -494,9 +494,9 @@ func basicMergeRequestToRow(mergeRequest *gitlab.BasicMergeRequest) mergeRequest
 	return row
 }
 
-func axiMergeRequestRowFor(mergeRequest *gitlab.BasicMergeRequest, fields []string) axiMergeRequestRow {
+func AxiMergeRequestRowFor(mergeRequest *gitlab.BasicMergeRequest, fields []string) AxiMergeRequestRow {
 	full := basicMergeRequestToRow(mergeRequest)
-	row := axiMergeRequestRow{
+	row := AxiMergeRequestRow{
 		IID:    full.IID,
 		Title:  full.Title,
 		State:  full.State,
@@ -520,3 +520,5 @@ func axiMergeRequestRowFor(mergeRequest *gitlab.BasicMergeRequest, fields []stri
 
 	return row
 }
+
+const descriptionTruncateLimit = 500

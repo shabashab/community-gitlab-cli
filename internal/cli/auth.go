@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/shabashab/community-gitlab-cli/internal/cli/output"
 	"github.com/shabashab/community-gitlab-cli/internal/credstore"
 	"github.com/shabashab/community-gitlab-cli/internal/gitlabclient"
 	"github.com/shabashab/community-gitlab-cli/internal/repo"
@@ -109,7 +110,7 @@ func runAuthLogin(cmd *cobra.Command, rootOpts *rootOptions, token string) error
 		return err
 	}
 
-	return writeAuthLogin(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, authLoginResult{
+	return output.WriteAuthLogin(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, output.AuthLoginResult{
 		Username: user.Username,
 		Domain:   domain,
 		Backend:  string(backend),
@@ -127,7 +128,7 @@ func runAuthLogout(cmd *cobra.Command, rootOpts *rootOptions) error {
 		// Logging out with nothing stored is the desired state already —
 		// acknowledge as a no-op instead of failing (axi guide §6).
 		if errors.Is(err, credstore.ErrNotFound) {
-			return writeAuthLogout(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, authLogoutResult{
+			return output.WriteAuthLogout(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, output.AuthLogoutResult{
 				Domain:   domain,
 				Backends: []string{},
 				Noop:     true,
@@ -137,7 +138,7 @@ func runAuthLogout(cmd *cobra.Command, rootOpts *rootOptions) error {
 		return fmt.Errorf("remove credential for %s: %w", domain, err)
 	}
 
-	return writeAuthLogout(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, authLogoutResult{
+	return output.WriteAuthLogout(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, output.AuthLogoutResult{
 		Domain:   domain,
 		Backends: backendNames(backends),
 	})
@@ -151,7 +152,7 @@ func runAuthStatus(cmd *cobra.Command, rootOpts *rootOptions) error {
 
 	status := credstore.New().Status(domain)
 
-	return writeAuthStatus(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, authStatusResult{
+	return output.WriteAuthStatus(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, output.AuthStatusResult{
 		Domain:        domain,
 		Authenticated: len(status.Backends) > 0,
 		Backends:      backendNames(status.Backends),

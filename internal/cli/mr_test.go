@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shabashab/community-gitlab-cli/internal/cli/output"
 	"github.com/shabashab/community-gitlab-cli/internal/repo"
 	"github.com/spf13/cobra"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
@@ -581,8 +582,8 @@ func TestWriteMergeRequestAxiTOONTruncatesDescription(t *testing.T) {
 	mergeRequest := testMergeRequest(123, strings.Repeat("x", 600))
 
 	var out bytes.Buffer
-	if err := writeMergeRequest(&out, "toon", commandModeAxi, mergeRequest, false, nil); err != nil {
-		t.Fatalf("writeMergeRequest returned error: %v", err)
+	if err := output.WriteMergeRequest(&out, "toon", commandModeAxi, mergeRequest, false, nil); err != nil {
+		t.Fatalf("output.WriteMergeRequest returned error: %v", err)
 	}
 
 	got := out.String()
@@ -604,8 +605,8 @@ func TestWriteMergeRequestAxiTOONShortDescriptionOmitsHelp(t *testing.T) {
 	mergeRequest := testMergeRequest(123, "short description")
 
 	var out bytes.Buffer
-	if err := writeMergeRequest(&out, "toon", commandModeAxi, mergeRequest, false, nil); err != nil {
-		t.Fatalf("writeMergeRequest returned error: %v", err)
+	if err := output.WriteMergeRequest(&out, "toon", commandModeAxi, mergeRequest, false, nil); err != nil {
+		t.Fatalf("output.WriteMergeRequest returned error: %v", err)
 	}
 
 	got := out.String()
@@ -622,8 +623,8 @@ func TestWriteMergeRequestAxiTOONFullFields(t *testing.T) {
 	mergeRequest := testMergeRequest(123, description)
 
 	var out bytes.Buffer
-	if err := writeMergeRequest(&out, "toon", commandModeAxi, mergeRequest, true, nil); err != nil {
-		t.Fatalf("writeMergeRequest returned error: %v", err)
+	if err := output.WriteMergeRequest(&out, "toon", commandModeAxi, mergeRequest, true, nil); err != nil {
+		t.Fatalf("output.WriteMergeRequest returned error: %v", err)
 	}
 
 	got := out.String()
@@ -654,13 +655,13 @@ func TestWriteMergeRequestListAxiTOON(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	err := writeMergeRequestList(&out, "toon", commandModeAxi, mergeRequests, mrListPaging{
-		page:       1,
-		totalItems: 57,
-		totalPages: 3,
+	err := output.WriteMergeRequestList(&out, "toon", commandModeAxi, mergeRequests, output.MRListPaging{
+		Page:       1,
+		TotalItems: 57,
+		TotalPages: 3,
 	}, nil, nil)
 	if err != nil {
-		t.Fatalf("writeMergeRequestList returned error: %v", err)
+		t.Fatalf("output.WriteMergeRequestList returned error: %v", err)
 	}
 
 	got := out.String()
@@ -687,11 +688,11 @@ func TestWriteMergeRequestListAxiTOONExtraFields(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	err := writeMergeRequestList(&out, "toon", commandModeAxi, mergeRequests, mrListPaging{
-		page: 1, totalItems: 1, totalPages: 1,
+	err := output.WriteMergeRequestList(&out, "toon", commandModeAxi, mergeRequests, output.MRListPaging{
+		Page: 1, TotalItems: 1, TotalPages: 1,
 	}, []string{"source_branch", "updated_at"}, nil)
 	if err != nil {
-		t.Fatalf("writeMergeRequestList returned error: %v", err)
+		t.Fatalf("output.WriteMergeRequestList returned error: %v", err)
 	}
 
 	got := out.String()
@@ -709,11 +710,11 @@ func TestWriteMergeRequestListAxiCarriesProjectFlag(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	err := writeMergeRequestList(&out, "toon", commandModeAxi, mergeRequests, mrListPaging{
-		page: 1, totalItems: 1, totalPages: 1,
-	}, nil, &mrHintContext{project: "group/project"})
+	err := output.WriteMergeRequestList(&out, "toon", commandModeAxi, mergeRequests, output.MRListPaging{
+		Page: 1, TotalItems: 1, TotalPages: 1,
+	}, nil, &output.MRHintContext{Project: "group/project"})
 	if err != nil {
-		t.Fatalf("writeMergeRequestList returned error: %v", err)
+		t.Fatalf("output.WriteMergeRequestList returned error: %v", err)
 	}
 
 	if !strings.Contains(out.String(), "Run `mr view <iid> --project group/project` for details") {
@@ -723,9 +724,9 @@ func TestWriteMergeRequestListAxiCarriesProjectFlag(t *testing.T) {
 
 func TestWriteMergeRequestListAxiTOONEmpty(t *testing.T) {
 	var out bytes.Buffer
-	err := writeMergeRequestList(&out, "toon", commandModeAxi, nil, mrListPaging{page: 1}, nil, nil)
+	err := output.WriteMergeRequestList(&out, "toon", commandModeAxi, nil, output.MRListPaging{Page: 1}, nil, nil)
 	if err != nil {
-		t.Fatalf("writeMergeRequestList returned error: %v", err)
+		t.Fatalf("output.WriteMergeRequestList returned error: %v", err)
 	}
 
 	got := out.String()
@@ -746,9 +747,9 @@ func TestWriteMergeRequestListAxiTOONUnknownTotal(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	err := writeMergeRequestList(&out, "toon", commandModeAxi, mergeRequests, mrListPaging{page: 1}, nil, &mrHintContext{limit: 1})
+	err := output.WriteMergeRequestList(&out, "toon", commandModeAxi, mergeRequests, output.MRListPaging{Page: 1}, nil, &output.MRHintContext{Limit: 1})
 	if err != nil {
-		t.Fatalf("writeMergeRequestList returned error: %v", err)
+		t.Fatalf("output.WriteMergeRequestList returned error: %v", err)
 	}
 
 	got := out.String()
@@ -767,13 +768,13 @@ func TestWriteMergeRequestListStandardTable(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	err := writeMergeRequestList(&out, "text", commandModeStandard, mergeRequests, mrListPaging{
-		page:       1,
-		totalItems: 57,
-		totalPages: 3,
+	err := output.WriteMergeRequestList(&out, "text", commandModeStandard, mergeRequests, output.MRListPaging{
+		Page:       1,
+		TotalItems: 57,
+		TotalPages: 3,
 	}, nil, nil)
 	if err != nil {
-		t.Fatalf("writeMergeRequestList returned error: %v", err)
+		t.Fatalf("output.WriteMergeRequestList returned error: %v", err)
 	}
 
 	got := out.String()
@@ -790,9 +791,9 @@ func TestWriteMergeRequestListStandardTable(t *testing.T) {
 
 func TestWriteMergeRequestListStandardTableEmpty(t *testing.T) {
 	var out bytes.Buffer
-	err := writeMergeRequestList(&out, "text", commandModeStandard, nil, mrListPaging{page: 1}, nil, nil)
+	err := output.WriteMergeRequestList(&out, "text", commandModeStandard, nil, output.MRListPaging{Page: 1}, nil, nil)
 	if err != nil {
-		t.Fatalf("writeMergeRequestList returned error: %v", err)
+		t.Fatalf("output.WriteMergeRequestList returned error: %v", err)
 	}
 
 	if !strings.Contains(out.String(), "No merge requests found") {
@@ -806,13 +807,13 @@ func TestWriteMergeRequestListStandardJSON(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	err := writeMergeRequestList(&out, "json", commandModeStandard, mergeRequests, mrListPaging{
-		page:       1,
-		totalItems: 57,
-		totalPages: 3,
+	err := output.WriteMergeRequestList(&out, "json", commandModeStandard, mergeRequests, output.MRListPaging{
+		Page:       1,
+		TotalItems: 57,
+		TotalPages: 3,
 	}, nil, nil)
 	if err != nil {
-		t.Fatalf("writeMergeRequestList returned error: %v", err)
+		t.Fatalf("output.WriteMergeRequestList returned error: %v", err)
 	}
 
 	got := out.String()
@@ -834,26 +835,26 @@ func TestWriteCommandErrorInvalidMergeRequestRef(t *testing.T) {
 }
 
 func TestTruncateDescription(t *testing.T) {
-	if got, truncated := truncateDescription("short", 500, commandModeAxi); got != "short" || truncated {
-		t.Fatalf("truncateDescription(short) = %q, %t, want unchanged and not truncated", got, truncated)
+	if got, truncated := output.TruncateDescription("short", 500, commandModeAxi); got != "short" || truncated {
+		t.Fatalf("output.TruncateDescription(short) = %q, %t, want unchanged and not truncated", got, truncated)
 	}
 
 	long := strings.Repeat("é", 501)
-	got, truncated := truncateDescription(long, 500, commandModeAxi)
+	got, truncated := output.TruncateDescription(long, 500, commandModeAxi)
 	if !truncated {
-		t.Fatal("truncateDescription reported not truncated for a long value")
+		t.Fatal("output.TruncateDescription reported not truncated for a long value")
 	}
 	if !strings.HasPrefix(got, strings.Repeat("é", 500)) {
-		t.Fatalf("truncateDescription output does not preserve first 500 runes: %q", got[:50])
+		t.Fatalf("output.TruncateDescription output does not preserve first 500 runes: %q", got[:50])
 	}
 	if !strings.Contains(got, "(truncated, 501 chars total)") {
-		t.Fatalf("truncateDescription output = %q, want size marker with rune total", got)
+		t.Fatalf("output.TruncateDescription output = %q, want size marker with rune total", got)
 	}
 	if strings.Contains(got, strings.Repeat("é", 501)) {
-		t.Fatalf("truncateDescription output still contains the full value")
+		t.Fatalf("output.TruncateDescription output still contains the full value")
 	}
 
-	standard, _ := truncateDescription(long, 500, commandModeStandard)
+	standard, _ := output.TruncateDescription(long, 500, commandModeStandard)
 	if !strings.Contains(standard, "use --full for the complete description") {
 		t.Fatalf("standard-mode marker = %q, want inline --full hint", standard)
 	}

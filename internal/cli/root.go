@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/shabashab/community-gitlab-cli/internal/cli/output"
 	"github.com/shabashab/community-gitlab-cli/internal/credstore"
 	"github.com/shabashab/community-gitlab-cli/internal/gitlabclient"
 	"github.com/spf13/cobra"
@@ -37,16 +38,19 @@ type rootOptions struct {
 	binName       string
 }
 
-type commandMode string
+// commandMode aliases output.Mode so command code and tests keep their
+// existing names; the output package owns the mode because every writer
+// branches on it.
+type commandMode = output.Mode
 
 const (
-	commandModeStandard commandMode = "standard"
-	commandModeAxi      commandMode = "axi"
+	commandModeStandard = output.ModeStandard
+	commandModeAxi      = output.ModeAxi
 )
 
 func newRootCommand(use, short, long string, mode commandMode) (*cobra.Command, *rootOptions) {
 	opts := &rootOptions{
-		output:  defaultOutputFormat(mode),
+		output:  output.DefaultFormat(mode),
 		mode:    mode,
 		binName: use,
 	}
@@ -61,7 +65,7 @@ func newRootCommand(use, short, long string, mode commandMode) (*cobra.Command, 
 		// Validate shared flags before any command work so a bad --output
 		// fails fast instead of after an API round trip.
 		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
-			normalized, err := normalizeOutputFormat(opts.output, mode)
+			normalized, err := output.NormalizeFormat(opts.output, mode)
 			if err != nil {
 				return err
 			}
@@ -97,7 +101,7 @@ func newRootCommand(use, short, long string, mode commandMode) (*cobra.Command, 
 		"output",
 		"o",
 		opts.output,
-		fmt.Sprintf("Output format: %s", outputFormats(mode)),
+		fmt.Sprintf("Output format: %s", output.Formats(mode)),
 	)
 
 	rootCmd.AddCommand(newWhoamiCommand(opts))
@@ -125,28 +129,28 @@ func runAxiHome(cmd *cobra.Command, opts *rootOptions) error {
 
 		mergeRequests, paging, err := fetchMergeRequestList(cmd, opts, resolved, listOpts)
 		if err == nil {
-			rows := make([]axiMergeRequestRow, 0, len(mergeRequests))
+			rows := make([]output.AxiMergeRequestRow, 0, len(mergeRequests))
 			for _, mergeRequest := range mergeRequests {
 				if mergeRequest == nil {
 					continue
 				}
-				rows = append(rows, axiMergeRequestRowFor(mergeRequest, nil))
+				rows = append(rows, output.AxiMergeRequestRowFor(mergeRequest, nil))
 			}
 
 			help := []string{fmt.Sprintf("Run `%s mr view <iid>` for details", opts.binName)}
-			if paging.totalItems > int64(len(rows)) {
-				help = append(help, fmt.Sprintf("Run `%s mr` for all %d open merge requests", opts.binName, paging.totalItems))
+			if paging.TotalItems > int64(len(rows)) {
+				help = append(help, fmt.Sprintf("Run `%s mr` for all %d open merge requests", opts.binName, paging.TotalItems))
 			}
 			if len(rows) == 0 {
 				help = []string{fmt.Sprintf("Run `%s mr list --state all` to include merged and closed merge requests", opts.binName)}
 			}
 
-			return writeAxi(cmd.OutOrStdout(), opts.output, axiHomeRepoOutput{
+			return output.WriteAxi(cmd.OutOrStdout(), opts.output, output.AxiHomeRepoOutput{
 				Bin:           bin,
 				Description:   axiDescription,
 				Project:       resolved.ref,
 				MergeRequests: rows,
-				Count:         fmt.Sprintf("%s open", mrListCountLine(len(rows), paging)),
+				Count:         fmt.Sprintf("%s open", output.MRListCountLine(len(rows), paging)),
 				Help:          help,
 			})
 		}
@@ -164,10 +168,10 @@ func runAxiHome(cmd *cobra.Command, opts *rootOptions) error {
 		return fmt.Errorf("get current GitLab user: %w", err)
 	}
 
-	return writeAxi(cmd.OutOrStdout(), opts.output, axiHomeUserOutput{
+	return output.WriteAxi(cmd.OutOrStdout(), opts.output, output.AxiHomeUserOutput{
 		Bin:         bin,
 		Description: axiDescription,
-		User:        axiUserFromAPI(user),
+		User:        output.AxiUserFromAPI(user),
 		Help: []string{
 			fmt.Sprintf("Run `%s mr --project <id-or-path>` to list merge requests of a project", opts.binName),
 			fmt.Sprintf("Run `%s` inside a GitLab repository for a project dashboard", opts.binName),

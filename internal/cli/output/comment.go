@@ -1,4 +1,4 @@
-package cli
+package output
 
 import (
 	"fmt"
@@ -8,10 +8,10 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 
-// commentCreatedOutput is the compact created-comment view. There is no body
+// CommentCreatedOutput is the compact created-comment view. There is no body
 // echo — the caller knows what it wrote; File/Line come from the response
 // position so agents see what GitLab actually anchored.
-type commentCreatedOutput struct {
+type CommentCreatedOutput struct {
 	DiscussionID string `json:"discussion_id,omitempty" toon:"discussion_id,omitempty"`
 	NoteID       int64  `json:"note_id" toon:"note_id"`
 	Author       string `json:"author" toon:"author"`
@@ -23,14 +23,14 @@ type commentCreatedOutput struct {
 }
 
 type axiCommentCreatedOutput struct {
-	Comment commentCreatedOutput `json:"comment" toon:"comment"`
+	Comment CommentCreatedOutput `json:"comment" toon:"comment"`
 	Help    []string             `json:"help,omitempty" toon:"help,omitempty"`
 }
 
-// commentCreatedFromNote builds the created-comment view from the response
+// CommentCreatedFromNote builds the created-comment view from the response
 // note. discussionID is empty for plain notes created via the notes API.
-func commentCreatedFromNote(discussionID string, note *gitlab.Note) commentCreatedOutput {
-	out := commentCreatedOutput{
+func CommentCreatedFromNote(discussionID string, note *gitlab.Note) CommentCreatedOutput {
+	out := CommentCreatedOutput{
 		DiscussionID: strings.ToLower(discussionID),
 		NoteID:       note.ID,
 		Author:       note.Author.Username,
@@ -55,41 +55,41 @@ func commentCreatedFromNote(discussionID string, note *gitlab.Note) commentCreat
 	return out
 }
 
-func writeCommentCreated(w io.Writer, format string, mode commandMode, out commentCreatedOutput, iid int64, positionRequested bool, hints *mrHintContext) error {
-	if mode == commandModeAxi {
+func WriteCommentCreated(w io.Writer, format string, mode Mode, out CommentCreatedOutput, iid int64, positionRequested bool, hints *MRHintContext) error {
+	if mode == ModeAxi {
 		axiOut := out
-		axiOut.DiscussionID = shortDiscussionID(out.DiscussionID)
+		axiOut.DiscussionID = ShortDiscussionID(out.DiscussionID)
 
 		var help []string
 		if axiOut.DiscussionID != "" {
 			help = append(help, fmt.Sprintf(
 				"Run `%s %d %s%s` for the full thread",
-				mrDiscussionViewCommandName,
+				MRDiscussionViewCommandName,
 				iid,
 				axiOut.DiscussionID,
-				hints.projectSuffix(),
+				hints.ProjectSuffix(),
 			))
 		} else {
 			help = append(help, fmt.Sprintf(
 				"Run `mr discussions %d --state all%s` to list comments on the merge request",
 				iid,
-				hints.projectSuffix(),
+				hints.ProjectSuffix(),
 			))
 		}
 		if downgraded := commentPositionDowngradeHint(out, iid, positionRequested, hints); downgraded != "" {
 			help = append(help, downgraded)
 		}
 
-		return writeAxi(w, format, axiCommentCreatedOutput{Comment: axiOut, Help: help})
+		return WriteAxi(w, format, axiCommentCreatedOutput{Comment: axiOut, Help: help})
 	}
 
-	format, err := normalizeOutputFormat(format, mode)
+	format, err := NormalizeFormat(format, mode)
 	if err != nil {
 		return err
 	}
 
 	if format == "json" {
-		return writeJSON(w, out)
+		return WriteJSON(w, out)
 	}
 
 	return writeCommentCreatedText(w, out)
@@ -99,7 +99,7 @@ func writeCommentCreated(w io.Writer, format string, mode commandMode, out comme
 // API can answer 201 yet attach the comment to the merge request instead of
 // the requested diff line. The mutation succeeded, so this stays a hint —
 // never an error an agent would retry into a duplicate.
-func commentPositionDowngradeHint(out commentCreatedOutput, iid int64, positionRequested bool, hints *mrHintContext) string {
+func commentPositionDowngradeHint(out CommentCreatedOutput, iid int64, positionRequested bool, hints *MRHintContext) string {
 	if !positionRequested || out.Type == string(gitlab.DiffNote) {
 		return ""
 	}
@@ -107,14 +107,14 @@ func commentPositionDowngradeHint(out commentCreatedOutput, iid int64, positionR
 	return fmt.Sprintf(
 		"GitLab did not anchor the comment to the requested diff position (type %s) — run `%s %d %s%s` to verify",
 		out.Type,
-		mrDiscussionViewCommandName,
+		MRDiscussionViewCommandName,
 		iid,
-		shortDiscussionID(out.DiscussionID),
-		hints.projectSuffix(),
+		ShortDiscussionID(out.DiscussionID),
+		hints.ProjectSuffix(),
 	)
 }
 
-func writeCommentCreatedText(w io.Writer, out commentCreatedOutput) error {
+func writeCommentCreatedText(w io.Writer, out CommentCreatedOutput) error {
 	if out.DiscussionID != "" {
 		if _, err := fmt.Fprintf(w, "discussion: %s\n", out.DiscussionID); err != nil {
 			return err

@@ -1,4 +1,4 @@
-package cli
+package output
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 	"github.com/jedib0t/go-pretty/v6/table"
 )
 
-func renderMergeRequestTable(w io.Writer, rows []mergeRequestRowOutput, paging mrListPaging) error {
+func renderMergeRequestTable(w io.Writer, rows []mergeRequestRowOutput, paging MRListPaging) error {
 	if len(rows) == 0 {
 		_, err := fmt.Fprintln(w, "No merge requests found. Try --state all or relax other filters.")
 		return err
@@ -44,8 +44,8 @@ func renderMergeRequestTable(w io.Writer, rows []mergeRequestRowOutput, paging m
 
 	tw.Render()
 
-	if paging.totalItems == 0 {
-		_, err := fmt.Fprintf(w, "\n%d merge requests (page %d)\n", len(rows), paging.page)
+	if paging.TotalItems == 0 {
+		_, err := fmt.Fprintf(w, "\n%d merge requests (page %d)\n", len(rows), paging.Page)
 		return err
 	}
 
@@ -53,14 +53,14 @@ func renderMergeRequestTable(w io.Writer, rows []mergeRequestRowOutput, paging m
 		w,
 		"\n%d of %d merge requests (page %d of %d)\n",
 		len(rows),
-		paging.totalItems,
-		paging.page,
-		paging.totalPages,
+		paging.TotalItems,
+		paging.Page,
+		paging.TotalPages,
 	)
 	return err
 }
 
-func renderDraftNoteTable(w io.Writer, rows []draftNoteOutput, paging mrListPaging) error {
+func renderDraftNoteTable(w io.Writer, rows []DraftNoteOutput, paging MRListPaging) error {
 	if len(rows) == 0 {
 		_, err := fmt.Fprintln(w, "No pending draft notes. Create one with `mr comment <iid> --draft --body <text>`.")
 		return err
@@ -94,14 +94,14 @@ func renderDraftNoteTable(w io.Writer, rows []draftNoteOutput, paging mrListPagi
 		w,
 		"\n%d of %d draft notes (page %d of %d)\n",
 		len(rows),
-		paging.totalItems,
-		paging.page,
-		paging.totalPages,
+		paging.TotalItems,
+		paging.Page,
+		paging.TotalPages,
 	)
 	return err
 }
 
-func renderMRDiffTable(w io.Writer, rows []mrDiffFileOutput, paging mrListPaging) error {
+func renderMRDiffTable(w io.Writer, rows []MRDiffFileOutput, paging MRListPaging) error {
 	if len(rows) == 0 {
 		_, err := fmt.Fprintln(w, "No changed files found.")
 		return err
@@ -131,14 +131,14 @@ func renderMRDiffTable(w io.Writer, rows []mrDiffFileOutput, paging mrListPaging
 		w,
 		"\n%d of %d changed files (page %d of %d)\n",
 		len(rows),
-		paging.totalItems,
-		paging.page,
-		paging.totalPages,
+		paging.TotalItems,
+		paging.Page,
+		paging.TotalPages,
 	)
 	return err
 }
 
-func renderDiscussionTable(w io.Writer, rows []discussionRowOutput, paging mrListPaging) error {
+func renderDiscussionTable(w io.Writer, rows []discussionRowOutput, paging MRListPaging) error {
 	if len(rows) == 0 {
 		_, err := fmt.Fprintln(w, "No discussion threads found. Try --state all, --system, or relax other filters.")
 		return err
@@ -158,7 +158,7 @@ func renderDiscussionTable(w io.Writer, rows []discussionRowOutput, paging mrLis
 			updated = updated[:10]
 		}
 		tw.AppendRow(table.Row{
-			shortDiscussionID(row.ID),
+			ShortDiscussionID(row.ID),
 			row.Author,
 			row.State,
 			row.Notes,
@@ -173,9 +173,9 @@ func renderDiscussionTable(w io.Writer, rows []discussionRowOutput, paging mrLis
 		w,
 		"\n%d of %d discussions (page %d of %d)\n",
 		len(rows),
-		paging.totalItems,
-		paging.page,
-		paging.totalPages,
+		paging.TotalItems,
+		paging.Page,
+		paging.TotalPages,
 	)
 	return err
 }

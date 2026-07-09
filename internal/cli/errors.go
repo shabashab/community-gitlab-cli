@@ -3,9 +3,11 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 
+	"github.com/shabashab/community-gitlab-cli/internal/cli/output"
 	"github.com/shabashab/community-gitlab-cli/internal/credstore"
 	"github.com/shabashab/community-gitlab-cli/internal/gitlabclient"
 	"github.com/spf13/cobra"
@@ -13,20 +15,14 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 
-// usageError marks errors caused by invalid invocation (unknown flags, bad
-// arguments, unsupported formats). Commands exit with code 2 for usage errors
-// and 1 for everything else, matching the axi exit-code contract.
-type usageError struct {
-	err  error
-	help []string
-}
-
-func (e *usageError) Error() string { return e.err.Error() }
-
-func (e *usageError) Unwrap() error { return e.err }
+// usageError aliases output.UsageError (invalid invocation, exit 2). The
+// output package owns the type because format negotiation reports invalid
+// --output values as usage errors; the alias keeps errors.As identity for
+// every existing check.
+type usageError = output.UsageError
 
 func newUsageError(err error, help ...string) error {
-	return &usageError{err: err, help: help}
+	return output.NewUsageError(err, help...)
 }
 
 func exitCodeForError(err error) int {
@@ -293,10 +289,32 @@ func classifyError(err error, bin string) (code, message string, help []string) 
 
 	var usage *usageError
 	if errors.As(err, &usage) {
-		return "usage_error", message, usage.help
+		return "usage_error", message, usage.Help
 	}
 
 	return "command_failed", message, []string{
 		"Inspect the error message, fix the input or GitLab configuration, then retry",
+	}
+}
+
+// writeCommandError renders a failed command. In axi mode the error is
+// structured output on the same channel and format as normal results so the
+// agent can parse and act on it.
+func writeCommandError(w io.Writer, mode commandMode, format string, bin string, err error) {
+	if mode != commandModeAxi {
+		fmt.Fprintln(w, err)
+		return
+	}
+
+	code, message, help := classifyError(err, bin)
+	out := output.ErrorOutput{Error: message, Code: code, Help: help}
+
+	normalized, formatErr := output.NormalizeFormat(format, mode)
+	if formatErr != nil {
+		normalized = output.DefaultFormat(mode)
+	}
+
+	if writeErr := output.WriteAxi(w, normalized, out); writeErr != nil {
+		fmt.Fprintln(w, err)
 	}
 }

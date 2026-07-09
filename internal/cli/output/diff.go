@@ -1,4 +1,4 @@
-package cli
+package output
 
 import (
 	"fmt"
@@ -15,7 +15,7 @@ type mrDiffSummaryOutput struct {
 	Files    int    `json:"files" toon:"files"`
 }
 
-type mrDiffFileOutput struct {
+type MRDiffFileOutput struct {
 	Path      string `json:"path" toon:"path"`
 	Status    string `json:"status" toon:"status"`
 	Additions int    `json:"additions" toon:"additions"`
@@ -55,15 +55,15 @@ type axiMRDiffOutput struct {
 
 type mrDiffOutput struct {
 	Diff       mrDiffSummaryOutput `json:"diff" toon:"diff"`
-	Files      []mrDiffFileOutput  `json:"files" toon:"files"`
+	Files      []MRDiffFileOutput  `json:"files" toon:"files"`
 	Count      int                 `json:"count" toon:"-"`
 	Total      int64               `json:"total" toon:"-"`
 	Page       int64               `json:"page" toon:"-"`
 	TotalPages int64               `json:"total_pages" toon:"-"`
 }
 
-type mrDiffFilesDocument struct {
-	Files []mrDiffFileOutput `json:"files" toon:"files"`
+type MRDiffFilesDocument struct {
+	Files []MRDiffFileOutput `json:"files" toon:"files"`
 }
 
 type mrDiffManifestVersionOutput struct {
@@ -72,7 +72,7 @@ type mrDiffManifestVersionOutput struct {
 	CreatedAt string `json:"created_at,omitempty" toon:"created_at,omitempty"`
 }
 
-type mrDiffManifestOutput struct {
+type MRDiffManifestOutput struct {
 	IID         int64                        `json:"iid" toon:"iid"`
 	Project     string                       `json:"project" toon:"project"`
 	BaseSHA     string                       `json:"base_sha" toon:"base_sha"`
@@ -98,44 +98,44 @@ type axiMRDiffExportOutput struct {
 	Help   []string           `json:"help,omitempty" toon:"help,omitempty"`
 }
 
-type mrDiffHintContext struct {
-	mrHintContext
-	iid int64
+type MRDiffHintContext struct {
+	MRHintContext
+	IID int64
 }
 
-func writeMRDiff(w io.Writer, format string, mode commandMode, mergeRequest *gitlab.MergeRequest, files []mrDiffFile, paging mrListPaging, fields []string, hints *mrDiffHintContext) error {
-	summary := mrDiffSummaryFromMR(mergeRequest, int(paging.totalItems))
-	fullRows := diffFileOutputs(files)
+func WriteMRDiff(w io.Writer, format string, mode Mode, mergeRequest *gitlab.MergeRequest, files []MRDiffFile, paging MRListPaging, fields []string, hints *MRDiffHintContext) error {
+	summary := mrDiffSummaryFromMR(mergeRequest, int(paging.TotalItems))
+	fullRows := DiffFileOutputs(files)
 
-	if mode == commandModeAxi {
+	if mode == ModeAxi {
 		rows := make([]axiMRDiffFileRow, 0, len(fullRows))
 		for _, file := range fullRows {
 			rows = append(rows, axiMRDiffFileRowFor(file, fields))
 		}
 
-		return writeAxi(w, format, axiMRDiffOutput{
+		return WriteAxi(w, format, axiMRDiffOutput{
 			Diff:       summary,
 			Files:      rows,
-			Count:      mrListCountLine(len(rows), paging),
-			Total:      paging.totalItems,
-			Page:       paging.page,
-			TotalPages: paging.totalPages,
+			Count:      MRListCountLine(len(rows), paging),
+			Total:      paging.TotalItems,
+			Page:       paging.Page,
+			TotalPages: paging.TotalPages,
 			Help:       mrDiffHelp(len(rows), paging, hints),
 		})
 	}
 
-	format, err := normalizeOutputFormat(format, mode)
+	format, err := NormalizeFormat(format, mode)
 	if err != nil {
 		return err
 	}
 	if format == "json" {
-		return writeJSON(w, mrDiffOutput{
+		return WriteJSON(w, mrDiffOutput{
 			Diff:       summary,
 			Files:      fullRows,
 			Count:      len(fullRows),
-			Total:      paging.totalItems,
-			Page:       paging.page,
-			TotalPages: paging.totalPages,
+			Total:      paging.TotalItems,
+			Page:       paging.Page,
+			TotalPages: paging.TotalPages,
 		})
 	}
 
@@ -153,28 +153,28 @@ func mrDiffSummaryFromMR(mergeRequest *gitlab.MergeRequest, files int) mrDiffSum
 	}
 }
 
-func diffFileOutputs(files []mrDiffFile) []mrDiffFileOutput {
-	out := make([]mrDiffFileOutput, 0, len(files))
+func DiffFileOutputs(files []MRDiffFile) []MRDiffFileOutput {
+	out := make([]MRDiffFileOutput, 0, len(files))
 	for _, file := range files {
-		out = append(out, mrDiffFileOutput{
-			Path:      file.path,
-			Status:    file.status,
-			Additions: file.additions,
-			Deletions: file.deletions,
-			Hunks:     file.hunks,
-			OldPath:   file.oldPath,
-			Generated: file.generated,
-			Collapsed: file.collapsed,
-			TooLarge:  file.tooLarge,
-			NewRanges: file.newRanges,
-			OldRanges: file.oldRanges,
+		out = append(out, MRDiffFileOutput{
+			Path:      file.Path,
+			Status:    file.Status,
+			Additions: file.Additions,
+			Deletions: file.Deletions,
+			Hunks:     file.Hunks,
+			OldPath:   file.OldPath,
+			Generated: file.Generated,
+			Collapsed: file.Collapsed,
+			TooLarge:  file.TooLarge,
+			NewRanges: file.NewRanges,
+			OldRanges: file.OldRanges,
 		})
 	}
 
 	return out
 }
 
-func axiMRDiffFileRowFor(file mrDiffFileOutput, fields []string) axiMRDiffFileRow {
+func axiMRDiffFileRowFor(file MRDiffFileOutput, fields []string) axiMRDiffFileRow {
 	row := axiMRDiffFileRow{
 		Path:      file.Path,
 		Status:    file.Status,
@@ -202,38 +202,38 @@ func axiMRDiffFileRowFor(file mrDiffFileOutput, fields []string) axiMRDiffFileRo
 	return row
 }
 
-func mrDiffHelp(count int, paging mrListPaging, hints *mrDiffHintContext) []string {
-	suffix := hints.projectSuffix()
+func mrDiffHelp(count int, paging MRListPaging, hints *MRDiffHintContext) []string {
+	suffix := hints.ProjectSuffix()
 	if count == 0 {
-		if paging.totalItems > 0 {
+		if paging.TotalItems > 0 {
 			return []string{fmt.Sprintf(
 				"Page %d is past the end (%d changed files, %d pages) — run `mr diff %d --page 1%s`",
-				paging.page,
-				paging.totalItems,
-				paging.totalPages,
-				hints.iid,
+				paging.Page,
+				paging.TotalItems,
+				paging.TotalPages,
+				hints.IID,
 				suffix,
 			)}
 		}
 
-		return []string{fmt.Sprintf("No changed files found — run `mr view %d%s` to inspect the merge request", hints.iid, suffix)}
+		return []string{fmt.Sprintf("No changed files found — run `mr view %d%s` to inspect the merge request", hints.IID, suffix)}
 	}
 
 	help := []string{
-		fmt.Sprintf("Run `mr diff %d --file <path> --fields new_ranges,old_ranges%s` for one file", hints.iid, suffix),
-		fmt.Sprintf("Run `mr diff export %d --dir .gl-axi/mr-%d%s` to create a filesystem review bundle", hints.iid, hints.iid, suffix),
-		fmt.Sprintf("Run `mr comment %d --file <path> --line <line> --body <text>%s` to comment on a diff line", hints.iid, suffix),
+		fmt.Sprintf("Run `mr diff %d --file <path> --fields new_ranges,old_ranges%s` for one file", hints.IID, suffix),
+		fmt.Sprintf("Run `mr diff export %d --dir .gl-axi/mr-%d%s` to create a filesystem review bundle", hints.IID, hints.IID, suffix),
+		fmt.Sprintf("Run `mr comment %d --file <path> --line <line> --body <text>%s` to comment on a diff line", hints.IID, suffix),
 	}
-	if paging.totalPages > paging.page {
-		help = append(help, fmt.Sprintf("Run `mr diff %d --page %d%s` for the next page", hints.iid, paging.page+1, suffix))
+	if paging.TotalPages > paging.Page {
+		help = append(help, fmt.Sprintf("Run `mr diff %d --page %d%s` for the next page", hints.IID, paging.Page+1, suffix))
 	}
 
 	return help
 }
 
-func mrDiffManifestFromData(iid int64, projectRef any, mergeRequest *gitlab.MergeRequest, version *gitlab.MergeRequestDiffVersion, files []mrDiffFile, warnings []string) mrDiffManifestOutput {
+func MRDiffManifestFromData(iid int64, projectRef any, mergeRequest *gitlab.MergeRequest, version *gitlab.MergeRequestDiffVersion, files []MRDiffFile, warnings []string) MRDiffManifestOutput {
 	refs := mergeRequest.DiffRefs
-	out := mrDiffManifestOutput{
+	out := MRDiffManifestOutput{
 		IID:      iid,
 		Project:  fmt.Sprint(projectRef),
 		BaseSHA:  refs.BaseSha,
@@ -257,7 +257,7 @@ func mrDiffManifestFromData(iid int64, projectRef any, mergeRequest *gitlab.Merg
 	return out
 }
 
-func writeMRDiffExport(w io.Writer, format string, mode commandMode, result mrDiffExportResult, iid int64, hints *mrHintContext) error {
+func WriteMRDiffExport(w io.Writer, format string, mode Mode, result MRDiffExportResult, iid int64, hints *MRHintContext) error {
 	out := mrDiffExportOutput{
 		Dir:      result.Dir,
 		Files:    result.Files,
@@ -267,21 +267,21 @@ func writeMRDiffExport(w io.Writer, format string, mode commandMode, result mrDi
 		Warnings: result.Warnings,
 	}
 
-	if mode == commandModeAxi {
+	if mode == ModeAxi {
 		help := []string{
 			fmt.Sprintf("Inspect `%s/manifest.toon`, `%s/files.toon`, and `%s/new/`", result.Dir, result.Dir, result.Dir),
-			fmt.Sprintf("Run `mr drafts publish %d --all%s` after adding draft review comments", iid, hints.projectSuffix()),
+			fmt.Sprintf("Run `mr drafts publish %d --all%s` after adding draft review comments", iid, hints.ProjectSuffix()),
 		}
 
-		return writeAxi(w, format, axiMRDiffExportOutput{Export: out, Help: help})
+		return WriteAxi(w, format, axiMRDiffExportOutput{Export: out, Help: help})
 	}
 
-	format, err := normalizeOutputFormat(format, mode)
+	format, err := NormalizeFormat(format, mode)
 	if err != nil {
 		return err
 	}
 	if format == "json" {
-		return writeJSON(w, out)
+		return WriteJSON(w, out)
 	}
 
 	_, err = fmt.Fprintf(
@@ -303,4 +303,29 @@ func writeMRDiffExport(w io.Writer, format string, mode commandMode, result mrDi
 	}
 
 	return nil
+}
+
+// MRDiffFile is the per-file diff view model built by the cli diff
+// commands and rendered by the diff writers.
+type MRDiffFile struct {
+	Path      string
+	OldPath   string
+	Status    string
+	Additions int
+	Deletions int
+	Hunks     int
+	Generated bool
+	Collapsed bool
+	TooLarge  bool
+	NewRanges string
+	OldRanges string
+}
+
+type MRDiffExportResult struct {
+	Dir      string
+	Files    int
+	Diffs    int
+	OldFiles int
+	NewFiles int
+	Warnings []string
 }

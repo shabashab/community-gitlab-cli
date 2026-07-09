@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/shabashab/community-gitlab-cli/internal/cli/output"
 	"github.com/spf13/cobra"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
@@ -185,7 +186,7 @@ func runMRComment(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOp
 	}
 
 	ctx := commandContext(cmd)
-	hints := &mrHintContext{project: explicitProjectRef(projOpts)}
+	hints := &output.MRHintContext{Project: explicitProjectRef(projOpts)}
 
 	if opts.replySet {
 		return runMRCommentReply(cmd, rootOpts, opts, client, resolved, iid, body, hints)
@@ -208,7 +209,7 @@ func runMRComment(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOp
 			return fmt.Errorf("create draft note on merge request !%d in project %q: %w", iid, resolved.ref, err)
 		}
 
-		return writeDraftNoteCreated(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, draft, iid, opts.fileSet, hints)
+		return output.WriteDraftNoteCreated(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, draft, iid, opts.fileSet, hints)
 	}
 
 	if opts.note {
@@ -222,7 +223,7 @@ func runMRComment(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOp
 			return errors.New("gitlab api returned an empty note response")
 		}
 
-		return writeCommentCreated(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, commentCreatedFromNote("", note), iid, false, hints)
+		return output.WriteCommentCreated(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, output.CommentCreatedFromNote("", note), iid, false, hints)
 	}
 
 	discussion, _, err := client.Discussions.CreateMergeRequestDiscussion(resolved.ref, iid, &gitlab.CreateMergeRequestDiscussionOptions{
@@ -237,10 +238,10 @@ func runMRComment(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOp
 		return errors.New("gitlab api returned a discussion without notes")
 	}
 
-	return writeCommentCreated(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, commentCreatedFromNote(discussion.ID, note), iid, opts.fileSet, hints)
+	return output.WriteCommentCreated(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, output.CommentCreatedFromNote(discussion.ID, note), iid, opts.fileSet, hints)
 }
 
-func runMRCommentReply(cmd *cobra.Command, rootOpts *rootOptions, opts *mrCommentOptions, client *gitlab.Client, resolved resolvedProject, iid int64, body string, hints *mrHintContext) error {
+func runMRCommentReply(cmd *cobra.Command, rootOpts *rootOptions, opts *mrCommentOptions, client *gitlab.Client, resolved resolvedProject, iid int64, body string, hints *output.MRHintContext) error {
 	ctx := commandContext(cmd)
 
 	discussion, err := resolveDiscussionRef(ctx, client, resolved.ref, iid, opts.replyTo)
@@ -259,23 +260,23 @@ func runMRCommentReply(cmd *cobra.Command, rootOpts *rootOptions, opts *mrCommen
 
 		draft, _, err := client.DraftNotes.CreateDraftNote(resolved.ref, iid, createOpts, gitlab.WithContext(ctx))
 		if err != nil {
-			return fmt.Errorf("create draft reply to discussion %s on merge request !%d in project %q: %w", shortDiscussionID(discussion.ID), iid, resolved.ref, err)
+			return fmt.Errorf("create draft reply to discussion %s on merge request !%d in project %q: %w", output.ShortDiscussionID(discussion.ID), iid, resolved.ref, err)
 		}
 
-		return writeDraftNoteCreated(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, draft, iid, false, hints)
+		return output.WriteDraftNoteCreated(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, draft, iid, false, hints)
 	}
 
 	note, _, err := client.Discussions.AddMergeRequestDiscussionNote(resolved.ref, iid, discussion.ID, &gitlab.AddMergeRequestDiscussionNoteOptions{
 		Body: gitlab.Ptr(body),
 	}, gitlab.WithContext(ctx))
 	if err != nil {
-		return fmt.Errorf("reply to discussion %s on merge request !%d in project %q: %w", shortDiscussionID(discussion.ID), iid, resolved.ref, err)
+		return fmt.Errorf("reply to discussion %s on merge request !%d in project %q: %w", output.ShortDiscussionID(discussion.ID), iid, resolved.ref, err)
 	}
 	if note == nil {
 		return errors.New("gitlab api returned an empty note response")
 	}
 
-	return writeCommentCreated(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, commentCreatedFromNote(discussion.ID, note), iid, false, hints)
+	return output.WriteCommentCreated(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, output.CommentCreatedFromNote(discussion.ID, note), iid, false, hints)
 }
 
 func firstDiscussionNote(discussion *gitlab.Discussion) *gitlab.Note {

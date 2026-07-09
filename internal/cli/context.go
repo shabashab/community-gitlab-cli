@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 
+	"github.com/shabashab/community-gitlab-cli/internal/cli/output"
 	"github.com/spf13/cobra"
 )
 
@@ -41,23 +42,23 @@ func runContext(cmd *cobra.Command, rootOpts *rootOptions) error {
 		return nil
 	}
 
-	rows := make([]axiMergeRequestRow, 0, len(mergeRequests))
+	rows := make([]output.AxiMergeRequestRow, 0, len(mergeRequests))
 	for _, mergeRequest := range mergeRequests {
 		if mergeRequest == nil {
 			continue
 		}
-		rows = append(rows, axiMergeRequestRowFor(mergeRequest, nil))
+		rows = append(rows, output.AxiMergeRequestRowFor(mergeRequest, nil))
 	}
 
 	help := []string{fmt.Sprintf("Run `%s mr view <iid>` for merge request details", rootOpts.binName)}
-	if paging.totalItems > int64(len(rows)) {
-		help = append(help, fmt.Sprintf("Run `%s mr` for all %d open merge requests", rootOpts.binName, paging.totalItems))
+	if paging.TotalItems > int64(len(rows)) {
+		help = append(help, fmt.Sprintf("Run `%s mr` for all %d open merge requests", rootOpts.binName, paging.TotalItems))
 	}
 
-	return writeAxi(cmd.OutOrStdout(), rootOpts.output, axiContextOutput{
+	return output.WriteAxi(cmd.OutOrStdout(), rootOpts.output, output.AxiContextOutput{
 		Project:       resolved.ref,
 		MergeRequests: rows,
-		Count:         fmt.Sprintf("%s open", mrListCountLine(len(rows), paging)),
+		Count:         fmt.Sprintf("%s open", output.MRListCountLine(len(rows), paging)),
 		Help:          help,
 	})
 }

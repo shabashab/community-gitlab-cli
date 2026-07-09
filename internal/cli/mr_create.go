@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/shabashab/community-gitlab-cli/internal/cli/output"
 	"github.com/shabashab/community-gitlab-cli/internal/repo"
 	"github.com/spf13/cobra"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
@@ -139,9 +140,9 @@ func runMRCreate(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOpt
 		return fmt.Errorf("create merge request in project %q: %w", resolved.ref, err)
 	}
 
-	hints := &mrHintContext{project: explicitProjectRef(projOpts)}
+	hints := &output.MRHintContext{Project: explicitProjectRef(projOpts)}
 
-	return writeMergeRequestCreated(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, created, hints)
+	return output.WriteMergeRequestCreated(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, created, hints)
 }
 
 // defaultTargetBranch reads the default branch of the project the merge

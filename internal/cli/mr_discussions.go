@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shabashab/community-gitlab-cli/internal/cli/output"
 	"github.com/spf13/cobra"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
@@ -21,15 +22,7 @@ var (
 )
 
 const (
-	defaultDiscussionStateFilter         = "unresolved"
-	defaultDiscussionOrderBy             = "created_at"
-	defaultDiscussionSortDirection       = "asc"
-	discussionPreviewLimit               = 80
-	discussionShortIDLength              = 8
-	discussionFetchPageSize        int64 = 100
-	// mrDiscussionViewCommandName is how help hints reference the
-	// single-thread view command; change here if it is ever renamed.
-	mrDiscussionViewCommandName = "mr discussion"
+	discussionFetchPageSize int64 = 100
 )
 
 // mrDiscussionListExtraFields are the optional axi list columns that --fields
@@ -55,10 +48,10 @@ type mrDiscussionListOptions struct {
 
 func newMRDiscussionListOptions() *mrDiscussionListOptions {
 	return &mrDiscussionListOptions{
-		state:   defaultDiscussionStateFilter,
-		orderBy: defaultDiscussionOrderBy,
-		sortDir: defaultDiscussionSortDirection,
-		limit:   defaultMergeRequestListLimit,
+		state:   output.DefaultDiscussionStateFilter,
+		orderBy: output.DefaultDiscussionOrderBy,
+		sortDir: output.DefaultDiscussionSortDirection,
+		limit:   output.DefaultMergeRequestListLimit,
 		page:    1,
 	}
 }
@@ -239,9 +232,9 @@ func runMRDiscussionList(cmd *cobra.Command, rootOpts *rootOptions, projOpts *pr
 		return err
 	}
 
-	summaries := make([]discussionSummary, 0, len(discussions))
+	summaries := make([]output.DiscussionSummary, 0, len(discussions))
 	for _, discussion := range discussions {
-		summary, ok := summarizeDiscussion(discussion)
+		summary, ok := output.SummarizeDiscussion(discussion)
 		if !ok {
 			continue
 		}
@@ -251,7 +244,7 @@ func runMRDiscussionList(cmd *cobra.Command, rootOpts *rootOptions, projOpts *pr
 	excludedSystem := 0
 	if !opts.system {
 		for _, summary := range summaries {
-			if summary.system {
+			if summary.System {
 				excludedSystem++
 			}
 		}
@@ -261,18 +254,18 @@ func runMRDiscussionList(cmd *cobra.Command, rootOpts *rootOptions, projOpts *pr
 	sortDiscussionSummaries(filtered, opts.orderBy, opts.sortDir)
 	rows, paging := pageDiscussionSummaries(filtered, opts.page, opts.limit)
 
-	hints := &discussionHintContext{
-		mrHintContext:  mrHintContext{project: explicitProjectRef(projOpts), limit: opts.limit},
-		iid:            iid,
-		state:          opts.state,
-		author:         opts.author,
-		system:         opts.system,
-		orderBy:        opts.orderBy,
-		sortDir:        opts.sortDir,
-		excludedSystem: excludedSystem,
+	hints := &output.DiscussionHintContext{
+		MRHintContext:  output.MRHintContext{Project: explicitProjectRef(projOpts), Limit: opts.limit},
+		IID:            iid,
+		State:          opts.state,
+		Author:         opts.author,
+		System:         opts.system,
+		OrderBy:        opts.orderBy,
+		SortDir:        opts.sortDir,
+		ExcludedSystem: excludedSystem,
 	}
 
-	return writeDiscussionList(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, rows, paging, opts.fields, hints)
+	return output.WriteDiscussionList(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, rows, paging, opts.fields, hints)
 }
 
 func runMRDiscussionView(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOptions, iid int64, ref string) error {
@@ -291,7 +284,7 @@ func runMRDiscussionView(cmd *cobra.Command, rootOpts *rootOptions, projOpts *pr
 		return err
 	}
 
-	return writeDiscussion(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, discussion)
+	return output.WriteDiscussion(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, discussion)
 }
 
 func runMRDiscussionResolve(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOptions, iid int64, ref, action string, desired bool) error {
@@ -311,17 +304,17 @@ func runMRDiscussionResolve(cmd *cobra.Command, rootOpts *rootOptions, projOpts 
 		return err
 	}
 
-	hints := &mrHintContext{project: explicitProjectRef(projOpts)}
-	summary, ok := summarizeDiscussion(discussion)
-	if !ok || !summary.resolvable {
+	hints := &output.MRHintContext{Project: explicitProjectRef(projOpts)}
+	summary, ok := output.SummarizeDiscussion(discussion)
+	if !ok || !summary.Resolvable {
 		return newHelpError(
-			fmt.Errorf("%w: discussion %s on merge request !%d cannot be resolved or unresolved", errDiscussionNotResolvable, shortDiscussionID(discussion.ID), iid),
-			fmt.Sprintf("Run `%s %d %s%s` for the full thread", mrDiscussionViewCommandName, iid, shortDiscussionID(discussion.ID), hints.projectSuffix()),
+			fmt.Errorf("%w: discussion %s on merge request !%d cannot be resolved or unresolved", errDiscussionNotResolvable, output.ShortDiscussionID(discussion.ID), iid),
+			fmt.Sprintf("Run `%s %d %s%s` for the full thread", output.MRDiscussionViewCommandName, iid, output.ShortDiscussionID(discussion.ID), hints.ProjectSuffix()),
 		)
 	}
 
-	if summary.resolved == desired {
-		return writeDiscussionAction(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, discussion, action, true, iid, hints)
+	if summary.Resolved == desired {
+		return output.WriteDiscussionAction(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, discussion, action, true, iid, hints)
 	}
 
 	updated, _, err := client.Discussions.ResolveMergeRequestDiscussion(
@@ -332,10 +325,10 @@ func runMRDiscussionResolve(cmd *cobra.Command, rootOpts *rootOptions, projOpts 
 		gitlab.WithContext(ctx),
 	)
 	if err != nil {
-		return fmt.Errorf("%s discussion %s on merge request !%d in project %q: %w", action, shortDiscussionID(discussion.ID), iid, resolved.ref, err)
+		return fmt.Errorf("%s discussion %s on merge request !%d in project %q: %w", action, output.ShortDiscussionID(discussion.ID), iid, resolved.ref, err)
 	}
 
-	return writeDiscussionAction(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, updated, action, false, iid, hints)
+	return output.WriteDiscussionAction(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, updated, action, false, iid, hints)
 }
 
 // fetchAllMergeRequestDiscussions pages through the full discussion list. The
@@ -406,155 +399,27 @@ func resolveDiscussionRef(ctx context.Context, client *gitlab.Client, projectRef
 	}
 }
 
-// discussionSummary is the computed per-thread view the list pipeline works
-// on: resolution state, last activity, and the compact row fields.
-type discussionSummary struct {
-	id         string
-	author     string
-	state      string
-	preview    string
-	noteType   string
-	file       string
-	line       int64
-	resolvable bool
-	resolved   bool
-	system     bool
-	notesCount int
-	createdAt  time.Time
-	updatedAt  time.Time
-	resolvedBy string
-	resolvedAt *time.Time
-}
-
-// summarizeDiscussion computes the thread-level summary. ok is false for nil
-// discussions and discussions without notes, which carry nothing to show.
-func summarizeDiscussion(discussion *gitlab.Discussion) (discussionSummary, bool) {
-	if discussion == nil {
-		return discussionSummary{}, false
-	}
-
-	notes := make([]*gitlab.Note, 0, len(discussion.Notes))
-	for _, note := range discussion.Notes {
-		if note != nil {
-			notes = append(notes, note)
-		}
-	}
-	if len(notes) == 0 {
-		return discussionSummary{}, false
-	}
-
-	summary := discussionSummary{
-		id:         strings.ToLower(discussion.ID),
-		notesCount: len(notes),
-		system:     true,
-	}
-
-	first := notes[0]
-	summary.author = first.Author.Username
-	summary.preview = discussionPreview(first.Body)
-	summary.noteType = string(first.Type)
-	if summary.noteType == "" {
-		summary.noteType = string(gitlab.GenericNote)
-	}
-	if first.CreatedAt != nil {
-		summary.createdAt = *first.CreatedAt
-	}
-	if position := first.Position; position != nil {
-		summary.file = position.NewPath
-		summary.line = position.NewLine
-		if summary.file == "" {
-			summary.file = position.OldPath
-		}
-		if summary.line == 0 {
-			summary.line = position.OldLine
-		}
-	}
-
-	resolvedAll := true
-	for _, note := range notes {
-		if !note.System {
-			summary.system = false
-		}
-
-		updated := note.UpdatedAt
-		if updated == nil {
-			updated = note.CreatedAt
-		}
-		if updated != nil && updated.After(summary.updatedAt) {
-			summary.updatedAt = *updated
-		}
-
-		if note.Resolvable {
-			summary.resolvable = true
-			if note.Resolved {
-				if note.ResolvedBy.Username != "" {
-					summary.resolvedBy = note.ResolvedBy.Username
-				}
-				if note.ResolvedAt != nil {
-					summary.resolvedAt = note.ResolvedAt
-				}
-			} else {
-				resolvedAll = false
-			}
-		}
-	}
-	summary.resolved = summary.resolvable && resolvedAll
-
-	switch {
-	case !summary.resolvable:
-		summary.state = "none"
-	case summary.resolved:
-		summary.state = "resolved"
-	default:
-		summary.state = "unresolved"
-	}
-
-	return summary, true
-}
-
-// discussionPreview flattens a note body to one line and truncates it at
-// discussionPreviewLimit runes with an explicit ellipsis.
-func discussionPreview(body string) string {
-	flattened := strings.Join(strings.Fields(body), " ")
-
-	runes := []rune(flattened)
-	if len(runes) <= discussionPreviewLimit {
-		return flattened
-	}
-
-	return string(runes[:discussionPreviewLimit]) + "…"
-}
-
-func shortDiscussionID(id string) string {
-	id = strings.ToLower(id)
-	if len(id) <= discussionShortIDLength {
-		return id
-	}
-
-	return id[:discussionShortIDLength]
-}
-
-func filterDiscussionSummaries(summaries []discussionSummary, state, author string, includeSystem bool) []discussionSummary {
+func filterDiscussionSummaries(summaries []output.DiscussionSummary, state, author string, includeSystem bool) []output.DiscussionSummary {
 	author = strings.TrimPrefix(strings.TrimSpace(author), "@")
 
-	filtered := make([]discussionSummary, 0, len(summaries))
+	filtered := make([]output.DiscussionSummary, 0, len(summaries))
 	for _, summary := range summaries {
-		if summary.system && !includeSystem {
+		if summary.System && !includeSystem {
 			continue
 		}
-		if author != "" && !strings.EqualFold(summary.author, author) {
+		if author != "" && !strings.EqualFold(summary.Author, author) {
 			continue
 		}
 
 		switch state {
 		case "resolved":
-			if !summary.resolved {
+			if !summary.Resolved {
 				continue
 			}
 		case "unresolved":
 			// glab semantics: unresolved means resolvable and not resolved;
 			// non-resolvable threads match only --state all.
-			if !summary.resolvable || summary.resolved {
+			if !summary.Resolvable || summary.Resolved {
 				continue
 			}
 		}
@@ -565,13 +430,13 @@ func filterDiscussionSummaries(summaries []discussionSummary, state, author stri
 	return filtered
 }
 
-func sortDiscussionSummaries(summaries []discussionSummary, orderBy, sortDir string) {
-	key := func(summary discussionSummary) time.Time {
+func sortDiscussionSummaries(summaries []output.DiscussionSummary, orderBy, sortDir string) {
+	key := func(summary output.DiscussionSummary) time.Time {
 		if orderBy == "updated_at" {
-			return summary.updatedAt
+			return summary.UpdatedAt
 		}
 
-		return summary.createdAt
+		return summary.CreatedAt
 	}
 
 	sort.SliceStable(summaries, func(i, j int) bool {
@@ -585,12 +450,12 @@ func sortDiscussionSummaries(summaries []discussionSummary, orderBy, sortDir str
 
 // pageDiscussionSummaries slices the filtered result into the requested page.
 // Totals are exact because the whole set was fetched and filtered locally.
-func pageDiscussionSummaries(summaries []discussionSummary, page, limit int64) ([]discussionSummary, mrListPaging) {
+func pageDiscussionSummaries(summaries []output.DiscussionSummary, page, limit int64) ([]output.DiscussionSummary, output.MRListPaging) {
 	total := int64(len(summaries))
-	paging := mrListPaging{
-		page:       page,
-		totalItems: total,
-		totalPages: (total + limit - 1) / limit,
+	paging := output.MRListPaging{
+		Page:       page,
+		TotalItems: total,
+		TotalPages: (total + limit - 1) / limit,
 	}
 
 	start := (page - 1) * limit

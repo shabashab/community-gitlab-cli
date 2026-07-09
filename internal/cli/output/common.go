@@ -1,4 +1,4 @@
-package cli
+package output
 
 import (
 	"fmt"
@@ -8,35 +8,35 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 
-type mrListPaging struct {
-	page       int64
-	totalItems int64
-	totalPages int64
+type MRListPaging struct {
+	Page       int64
+	TotalItems int64
+	TotalPages int64
 }
 
-// mrListCountLine states the definitive result size, including the explicit
+// MRListCountLine states the definitive result size, including the explicit
 // zero (axi guide §5) and the unknown-total case where GitLab omits X-Total.
-func mrListCountLine(count int, paging mrListPaging) string {
-	if count > 0 && paging.totalItems == 0 {
+func MRListCountLine(count int, paging MRListPaging) string {
+	if count > 0 && paging.TotalItems == 0 {
 		return fmt.Sprintf("%d of unknown total", count)
 	}
 
-	return fmt.Sprintf("%d of %d total", count, paging.totalItems)
+	return fmt.Sprintf("%d of %d total", count, paging.TotalItems)
 }
 
-// mrHintContext carries invocation context into help hints so suggested
+// MRHintContext carries invocation context into help hints so suggested
 // commands stay runnable as-is (axi guide §9: carry disambiguating flags).
-type mrHintContext struct {
-	project string
-	limit   int64
+type MRHintContext struct {
+	Project string
+	Limit   int64
 }
 
-func (c *mrHintContext) projectSuffix() string {
-	if c == nil || strings.TrimSpace(c.project) == "" {
+func (c *MRHintContext) ProjectSuffix() string {
+	if c == nil || strings.TrimSpace(c.Project) == "" {
 		return ""
 	}
 
-	return " --project " + strings.TrimSpace(c.project)
+	return " --project " + strings.TrimSpace(c.Project)
 }
 
 func basicUsernames(users []*gitlab.BasicUser) []string {
@@ -83,17 +83,17 @@ func formatTimeValue(t *time.Time) string {
 	return t.Format("2006-01-02T15:04:05Z07:00")
 }
 
-// truncateDescription cuts long descriptions at limit runes and appends an
+// TruncateDescription cuts long descriptions at limit runes and appends an
 // explicit size marker. The standard-mode marker keeps the inline --full hint
 // (text output has no help channel); the axi marker stays bare because the
 // escape hatch is suggested through the structured help field.
-func truncateDescription(value string, limit int, mode commandMode) (string, bool) {
+func TruncateDescription(value string, limit int, mode Mode) (string, bool) {
 	runes := []rune(value)
 	if len(runes) <= limit {
 		return value, false
 	}
 
-	if mode == commandModeAxi {
+	if mode == ModeAxi {
 		return fmt.Sprintf("%s… (truncated, %d chars total)", string(runes[:limit]), len(runes)), true
 	}
 
@@ -113,3 +113,7 @@ func formatLocalTime(t time.Time) string {
 
 	return t.Format("2006-01-02T15:04:05Z07:00")
 }
+
+// DefaultMergeRequestListLimit is the shared default page size for merge
+// request style lists; cli flag defaults and hint text both reference it.
+const DefaultMergeRequestListLimit int64 = 20

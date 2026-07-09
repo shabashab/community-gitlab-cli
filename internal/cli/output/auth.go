@@ -1,4 +1,4 @@
-package cli
+package output
 
 import (
 	"fmt"
@@ -6,29 +6,29 @@ import (
 	"strings"
 )
 
-type authLoginResult struct {
+type AuthLoginResult struct {
 	Username string `json:"username" toon:"username"`
 	Domain   string `json:"domain" toon:"domain"`
 	Backend  string `json:"backend" toon:"backend"`
 }
 
 type axiAuthLoginOutput struct {
-	Login authLoginResult `json:"login" toon:"login"`
+	Login AuthLoginResult `json:"login" toon:"login"`
 	Help  []string        `json:"help,omitempty" toon:"help,omitempty"`
 }
 
-type authLogoutResult struct {
+type AuthLogoutResult struct {
 	Domain   string   `json:"domain" toon:"domain"`
 	Backends []string `json:"backends" toon:"backends"`
 	Noop     bool     `json:"noop,omitempty" toon:"noop,omitempty"`
 }
 
 type axiAuthLogoutOutput struct {
-	Logout authLogoutResult `json:"logout" toon:"logout"`
+	Logout AuthLogoutResult `json:"logout" toon:"logout"`
 	Help   []string         `json:"help,omitempty" toon:"help,omitempty"`
 }
 
-type authStatusResult struct {
+type AuthStatusResult struct {
 	Domain        string   `json:"domain" toon:"domain"`
 	Authenticated bool     `json:"authenticated" toon:"authenticated"`
 	Backends      []string `json:"backends" toon:"backends"`
@@ -36,13 +36,13 @@ type authStatusResult struct {
 }
 
 type axiAuthStatusOutput struct {
-	Status authStatusResult `json:"status" toon:"status"`
+	Status AuthStatusResult `json:"status" toon:"status"`
 	Help   []string         `json:"help,omitempty" toon:"help,omitempty"`
 }
 
-func writeAuthLogin(w io.Writer, format string, mode commandMode, result authLoginResult) error {
-	if mode == commandModeAxi {
-		return writeAxi(w, format, axiAuthLoginOutput{
+func WriteAuthLogin(w io.Writer, format string, mode Mode, result AuthLoginResult) error {
+	if mode == ModeAxi {
+		return WriteAxi(w, format, axiAuthLoginOutput{
 			Login: result,
 			Help: []string{
 				fmt.Sprintf("Credential stored for %s — run `whoami` to verify API access", result.Domain),
@@ -51,13 +51,13 @@ func writeAuthLogin(w io.Writer, format string, mode commandMode, result authLog
 		})
 	}
 
-	format, err := normalizeOutputFormat(format, mode)
+	format, err := NormalizeFormat(format, mode)
 	if err != nil {
 		return err
 	}
 
 	if format == "json" {
-		return writeJSON(w, result)
+		return WriteJSON(w, result)
 	}
 
 	_, err = fmt.Fprintf(
@@ -71,13 +71,13 @@ func writeAuthLogin(w io.Writer, format string, mode commandMode, result authLog
 	return err
 }
 
-func writeAuthLogout(w io.Writer, format string, mode commandMode, result authLogoutResult) error {
+func WriteAuthLogout(w io.Writer, format string, mode Mode, result AuthLogoutResult) error {
 	if result.Backends == nil {
 		result.Backends = []string{}
 	}
 
-	if mode == commandModeAxi {
-		return writeAxi(w, format, axiAuthLogoutOutput{
+	if mode == ModeAxi {
+		return WriteAxi(w, format, axiAuthLogoutOutput{
 			Logout: result,
 			Help: []string{
 				"Run `auth login <token> --gitlab-base-url <url>` to authenticate again",
@@ -85,13 +85,13 @@ func writeAuthLogout(w io.Writer, format string, mode commandMode, result authLo
 		})
 	}
 
-	format, err := normalizeOutputFormat(format, mode)
+	format, err := NormalizeFormat(format, mode)
 	if err != nil {
 		return err
 	}
 
 	if format == "json" {
-		return writeJSON(w, result)
+		return WriteJSON(w, result)
 	}
 
 	if result.Noop {
@@ -109,27 +109,27 @@ func writeAuthLogout(w io.Writer, format string, mode commandMode, result authLo
 	return err
 }
 
-func writeAuthStatus(w io.Writer, format string, mode commandMode, result authStatusResult) error {
+func WriteAuthStatus(w io.Writer, format string, mode Mode, result AuthStatusResult) error {
 	if result.Backends == nil {
 		result.Backends = []string{}
 	}
 
-	if mode == commandModeAxi {
+	if mode == ModeAxi {
 		help := []string{"Run `auth login <token> --gitlab-base-url <url>` to store a credential"}
 		if result.Authenticated {
 			help = []string{"Run `whoami` to verify the stored token still works"}
 		}
 
-		return writeAxi(w, format, axiAuthStatusOutput{Status: result, Help: help})
+		return WriteAxi(w, format, axiAuthStatusOutput{Status: result, Help: help})
 	}
 
-	format, err := normalizeOutputFormat(format, mode)
+	format, err := NormalizeFormat(format, mode)
 	if err != nil {
 		return err
 	}
 
 	if format == "json" {
-		return writeJSON(w, result)
+		return WriteJSON(w, result)
 	}
 
 	if _, err := fmt.Fprintf(

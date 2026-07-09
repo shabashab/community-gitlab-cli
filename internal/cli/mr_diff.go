@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/shabashab/community-gitlab-cli/internal/cli/output"
 	"github.com/spf13/cobra"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
@@ -42,31 +43,8 @@ type mrDiffData struct {
 	diffs        []*gitlab.MergeRequestDiff
 }
 
-type mrDiffFile struct {
-	path      string
-	oldPath   string
-	status    string
-	additions int
-	deletions int
-	hunks     int
-	generated bool
-	collapsed bool
-	tooLarge  bool
-	newRanges string
-	oldRanges string
-}
-
-type mrDiffExportResult struct {
-	Dir      string
-	Files    int
-	Diffs    int
-	OldFiles int
-	NewFiles int
-	Warnings []string
-}
-
 func newMRDiffListOptions() *mrDiffListOptions {
-	return &mrDiffListOptions{limit: defaultMergeRequestListLimit, page: 1}
+	return &mrDiffListOptions{limit: output.DefaultMergeRequestListLimit, page: 1}
 }
 
 func newMRDiffCommand(rootOpts *rootOptions, projOpts *projectOptions) *cobra.Command {
@@ -213,9 +191,9 @@ func runMRDiff(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOptio
 	}
 
 	rows, paging := pageMRDiffFiles(files, opts.page, opts.limit)
-	hints := &mrDiffHintContext{mrHintContext: mrHintContext{project: explicitProjectRef(projOpts), limit: opts.limit}, iid: iid}
+	hints := &output.MRDiffHintContext{MRHintContext: output.MRHintContext{Project: explicitProjectRef(projOpts), Limit: opts.limit}, IID: iid}
 
-	return writeMRDiff(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, data.mergeRequest, rows, paging, opts.fields, hints)
+	return output.WriteMRDiff(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, data.mergeRequest, rows, paging, opts.fields, hints)
 }
 
 func runMRDiffPatch(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOptions, iid int64) error {
@@ -275,7 +253,7 @@ func runMRDiffExport(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projec
 		return err
 	}
 
-	result := mrDiffExportResult{Dir: dir, Files: len(files)}
+	result := output.MRDiffExportResult{Dir: dir, Files: len(files)}
 	version, versionErr := latestMergeRequestDiffVersion(ctx, client, resolved.ref, iid)
 	if versionErr != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("could not read diff version metadata: %v", versionErr))
@@ -289,15 +267,15 @@ func runMRDiffExport(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projec
 		return err
 	}
 
-	manifest := mrDiffManifestFromData(iid, resolved.ref, data.mergeRequest, version, files, result.Warnings)
-	manifestText, err := encodeTOON(manifest)
+	manifest := output.MRDiffManifestFromData(iid, resolved.ref, data.mergeRequest, version, files, result.Warnings)
+	manifestText, err := output.EncodeTOON(manifest)
 	if err != nil {
 		return err
 	}
 	if err := writeBundleFile(dir, "manifest.toon", []byte(manifestText)); err != nil {
 		return err
 	}
-	filesText, err := encodeTOON(mrDiffFilesDocument{Files: diffFileOutputs(files)})
+	filesText, err := output.EncodeTOON(output.MRDiffFilesDocument{Files: output.DiffFileOutputs(files)})
 	if err != nil {
 		return err
 	}
@@ -313,7 +291,7 @@ func runMRDiffExport(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projec
 		if err != nil {
 			return err
 		}
-		if err := writeBundleRepoFile(dir, "diffs", file.path+".diff", []byte(formatFilePatch(diff))); err != nil {
+		if err := writeBundleRepoFile(dir, "diffs", file.Path+".diff", []byte(formatFilePatch(diff))); err != nil {
 			return err
 		}
 		result.Diffs++
@@ -336,7 +314,7 @@ func runMRDiffExport(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projec
 
 	if len(result.Warnings) != len(manifest.Warnings) {
 		manifest.Warnings = result.Warnings
-		manifestText, err = encodeTOON(manifest)
+		manifestText, err = output.EncodeTOON(manifest)
 		if err != nil {
 			return err
 		}
@@ -345,7 +323,7 @@ func runMRDiffExport(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projec
 		}
 	}
 
-	return writeMRDiffExport(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, result, iid, &mrHintContext{project: explicitProjectRef(projOpts)})
+	return output.WriteMRDiffExport(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, result, iid, &output.MRHintContext{Project: explicitProjectRef(projOpts)})
 }
 
 func fetchMRDiffData(ctx context.Context, client *gitlab.Client, projectRef any, iid int64) (mrDiffData, error) {
@@ -380,8 +358,8 @@ func ensureMergeRequestDiffRefs(mergeRequest *gitlab.MergeRequest, iid int64) er
 	return nil
 }
 
-func mrDiffFilesFromAPI(diffs []*gitlab.MergeRequestDiff) ([]mrDiffFile, error) {
-	files := make([]mrDiffFile, 0, len(diffs))
+func mrDiffFilesFromAPI(diffs []*gitlab.MergeRequestDiff) ([]output.MRDiffFile, error) {
+	files := make([]output.MRDiffFile, 0, len(diffs))
 	for _, diff := range diffs {
 		if diff == nil {
 			continue
@@ -396,43 +374,43 @@ func mrDiffFilesFromAPI(diffs []*gitlab.MergeRequestDiff) ([]mrDiffFile, error) 
 	return files, nil
 }
 
-func mrDiffFileFromAPI(diff *gitlab.MergeRequestDiff) (mrDiffFile, error) {
-	file := mrDiffFile{
-		path:      displayDiffPath(diff),
-		oldPath:   diff.OldPath,
-		status:    diffStatus(diff),
-		generated: diff.GeneratedFile,
-		collapsed: diff.Collapsed,
-		tooLarge:  diff.TooLarge,
+func mrDiffFileFromAPI(diff *gitlab.MergeRequestDiff) (output.MRDiffFile, error) {
+	file := output.MRDiffFile{
+		Path:      displayDiffPath(diff),
+		OldPath:   diff.OldPath,
+		Status:    diffStatus(diff),
+		Generated: diff.GeneratedFile,
+		Collapsed: diff.Collapsed,
+		TooLarge:  diff.TooLarge,
 	}
 	if diff.OldPath == diff.NewPath {
-		file.oldPath = ""
+		file.OldPath = ""
 	}
 
 	index, err := parseFileDiff(diff.Diff)
 	if err != nil {
-		return mrDiffFile{}, fmt.Errorf("parse diff of %q: %w", file.path, err)
+		return output.MRDiffFile{}, fmt.Errorf("parse diff of %q: %w", file.Path, err)
 	}
 	for _, line := range index.lines {
 		switch line.kind {
 		case diffLineAdded:
-			file.additions++
+			file.Additions++
 		case diffLineRemoved:
-			file.deletions++
+			file.Deletions++
 		}
 	}
-	file.hunks = len(index.hunks)
-	file.newRanges = index.commentableRanges(sideNew)
-	file.oldRanges = index.commentableRanges(sideOld)
+	file.Hunks = len(index.hunks)
+	file.NewRanges = index.commentableRanges(sideNew)
+	file.OldRanges = index.commentableRanges(sideOld)
 
 	return file, nil
 }
 
-func filterMRDiffFiles(diffs []*gitlab.MergeRequestDiff, files []mrDiffFile, file string, iid int64) ([]mrDiffFile, error) {
+func filterMRDiffFiles(diffs []*gitlab.MergeRequestDiff, files []output.MRDiffFile, file string, iid int64) ([]output.MRDiffFile, error) {
 	normalized := strings.TrimPrefix(strings.TrimSpace(file), "./")
 	for _, candidate := range files {
-		if candidate.path == normalized || candidate.oldPath == normalized {
-			return []mrDiffFile{candidate}, nil
+		if candidate.Path == normalized || candidate.OldPath == normalized {
+			return []output.MRDiffFile{candidate}, nil
 		}
 	}
 
@@ -442,12 +420,12 @@ func filterMRDiffFiles(diffs []*gitlab.MergeRequestDiff, files []mrDiffFile, fil
 	)
 }
 
-func pageMRDiffFiles(files []mrDiffFile, page, limit int64) ([]mrDiffFile, mrListPaging) {
+func pageMRDiffFiles(files []output.MRDiffFile, page, limit int64) ([]output.MRDiffFile, output.MRListPaging) {
 	total := int64(len(files))
-	paging := mrListPaging{
-		page:       page,
-		totalItems: total,
-		totalPages: (total + limit - 1) / limit,
+	paging := output.MRListPaging{
+		Page:       page,
+		TotalItems: total,
+		TotalPages: (total + limit - 1) / limit,
 	}
 
 	start := (page - 1) * limit

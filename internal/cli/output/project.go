@@ -1,4 +1,4 @@
-package cli
+package output
 
 import (
 	"errors"
@@ -42,7 +42,7 @@ type axiProjectInfoOutput struct {
 	Project projectOutput `json:"project" toon:"project"`
 }
 
-func writeProject(w io.Writer, format string, mode commandMode, project *gitlab.Project) error {
+func WriteProject(w io.Writer, format string, mode Mode, project *gitlab.Project) error {
 	if project == nil {
 		return errors.New("gitlab api returned an empty project response")
 	}
@@ -51,17 +51,17 @@ func writeProject(w io.Writer, format string, mode commandMode, project *gitlab.
 
 	// A detail view fully answers the query, so the axi variant carries no
 	// help suggestions (axi guide §9: omit when self-contained).
-	if mode == commandModeAxi {
-		return writeAxi(w, format, axiProjectInfoOutput{Project: out})
+	if mode == ModeAxi {
+		return WriteAxi(w, format, axiProjectInfoOutput{Project: out})
 	}
 
-	format, err := normalizeOutputFormat(format, mode)
+	format, err := NormalizeFormat(format, mode)
 	if err != nil {
 		return err
 	}
 
 	if format == "json" {
-		return writeJSON(w, out)
+		return WriteJSON(w, out)
 	}
 
 	return writeProjectText(w, out)
