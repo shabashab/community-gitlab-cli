@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
@@ -63,11 +64,20 @@ func deleteProject(path string) error {
 	}
 
 	_, err = client.Projects.DeleteProject(path, nil)
-	if err != nil && !isNotFound(err) {
+	if err != nil && !isNotFound(err) && !isAlreadyMarkedForDeletion(err) {
 		return fmt.Errorf("delete project %q: %w", path, err)
 	}
 
 	return nil
+}
+
+// isAlreadyMarkedForDeletion recognizes the 400 an instance with delayed
+// project deletion returns when a project was already deleted once — for the
+// suite that outcome is success.
+func isAlreadyMarkedForDeletion(err error) bool {
+	var respErr *gitlab.ErrorResponse
+	return errors.As(err, &respErr) && respErr.StatusCode == 400 &&
+		strings.Contains(err.Error(), "marked for deletion")
 }
 
 func deleteProjectBySuffix(suffix string) error {

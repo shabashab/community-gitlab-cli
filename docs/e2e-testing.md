@@ -128,6 +128,8 @@ Assert fragments, not whole documents — live output contains instance-specific
 
 Three layers keep the instance clean: scripts' own deferred deletes, the auto-defer inside `mkproject`, and the janitor (`task e2e:clean` → `e2e/janitor`), which deletes group projects named `gl-e2e-*` older than one hour (`-max-age`, `-dry-run` to preview). Run the janitor after killing a run mid-flight; CI runs it as an always-on post-step.
 
+On instances with **delayed project deletion** enabled, a deleted fixture lingers in a pending state (renamed `*-deletion_scheduled-*`) until GitLab's scheduled purge. The janitor skips those by default — GitLab already owns their removal — and reports how many it saw; `task e2e:clean -- -hard` permanently removes them immediately. To avoid the pending phase entirely, set the instance's deletion-protection retention to immediate (Admin Area → Settings → General → Visibility and access controls → Deletion protection).
+
 ## CI
 
 `.github/workflows/e2e.yml` runs the suite on pull requests (code paths only), nightly, and on manual dispatch, on GitHub-hosted runners. The instance must be reachable from the public internet.

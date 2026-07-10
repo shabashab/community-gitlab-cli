@@ -6,9 +6,14 @@
 // projects behind; this sweeper removes those matching the prefix and older
 // than -max-age.
 //
+// On instances with delayed project deletion enabled, deleted projects
+// linger in a pending state (renamed *-deletion_scheduled-*) until GitLab
+// purges them. Those are skipped by default — GitLab already owns their
+// removal — and permanently removed with -hard.
+//
 // Usage:
 //
-//	GL_E2E_HOST=... GL_E2E_TOKEN=... GL_E2E_GROUP=... go run ./e2e/janitor [-max-age 1h] [-dry-run]
+//	GL_E2E_HOST=... GL_E2E_TOKEN=... GL_E2E_GROUP=... go run ./e2e/janitor [-max-age 1h] [-dry-run] [-hard]
 package main
 
 import (
@@ -26,15 +31,16 @@ const projectNamePrefix = "gl-e2e-"
 func main() {
 	maxAge := flag.Duration("max-age", time.Hour, "only delete projects older than this")
 	dryRun := flag.Bool("dry-run", false, "list matching projects without deleting")
+	hard := flag.Bool("hard", false, "permanently remove projects already pending deletion")
 	flag.Parse()
 
-	if err := run(*maxAge, *dryRun); err != nil {
+	if err := run(*maxAge, *dryRun, *hard); err != nil {
 		fmt.Fprintln(os.Stderr, "janitor:", err)
 		os.Exit(1)
 	}
 }
 
-func run(maxAge time.Duration, dryRun bool) error {
+func run(maxAge time.Duration, dryRun, hard bool) error {
 	host := os.Getenv("GL_E2E_HOST")
 	token := os.Getenv("GL_E2E_TOKEN")
 	group := os.Getenv("GL_E2E_GROUP")
@@ -49,6 +55,7 @@ func run(maxAge time.Duration, dryRun bool) error {
 
 	cutoff := time.Now().Add(-maxAge)
 	swept := 0
+	pending := 0
 
 	opts := &gitlab.ListGroupProjectsOptions{
 		Search:      gitlab.Ptr(projectNamePrefix),
@@ -64,6 +71,33 @@ func run(maxAge time.Duration, dryRun bool) error {
 			if !strings.HasPrefix(project.Path, projectNamePrefix) {
 				continue
 			}
+
+			// Already marked for deletion: GitLab purges these on its own
+			// schedule. Only -hard touches them, with the permanent-removal
+			// form of the delete API.
+			if project.MarkedForDeletionOn != nil {
+				if !hard {
+					pending++
+					continue
+				}
+				if dryRun {
+					fmt.Println("would permanently remove", project.PathWithNamespace)
+					swept++
+					continue
+				}
+				_, err := client.Projects.DeleteProject(project.ID, &gitlab.DeleteProjectOptions{
+					FullPath:          gitlab.Ptr(project.PathWithNamespace),
+					PermanentlyRemove: gitlab.Ptr(true),
+				})
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "janitor: permanently remove %s: %v\n", project.PathWithNamespace, err)
+					continue
+				}
+				fmt.Println("permanently removed", project.PathWithNamespace)
+				swept++
+				continue
+			}
+
 			if project.CreatedAt != nil && project.CreatedAt.After(cutoff) {
 				continue
 			}
@@ -87,6 +121,9 @@ func run(maxAge time.Duration, dryRun bool) error {
 		opts.Page = resp.NextPage
 	}
 
+	if pending > 0 {
+		fmt.Printf("skipped %d project(s) already pending deletion (GitLab purges them on schedule; pass -hard to remove now)\n", pending)
+	}
 	fmt.Printf("swept %d project(s)\n", swept)
 
 	return nil
