@@ -16,7 +16,7 @@ exec git commit -m 'add change'
 exec git push -u origin feature
 
 # create: only --title is given; branches and project come from the checkout
-exec gl-axi mr create --title 'E2E lifecycle' --description 'created by e2e'
+retry gl-axi mr create --title 'E2E lifecycle' --description 'created by e2e'
 stdout 'merge_request:'
 stdout 'title: E2E lifecycle'
 stdout 'state: opened'

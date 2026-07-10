@@ -14,7 +14,7 @@ exec git add change.txt
 exec git commit -m 'add change'
 exec git push -u origin feature
 
-exec gl-axi mr create --title 'E2E home view'
+retry gl-axi mr create --title 'E2E home view'
 stdout2env IID 'iid: (\d+)'
 
 # inside the repo: identity first, then the open merge requests

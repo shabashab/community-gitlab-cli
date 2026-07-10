@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/rogpeppe/go-internal/testscript"
 )
@@ -17,6 +18,7 @@ func scriptCmds() map[string]func(ts *testscript.TestScript, neg bool, args []st
 		"exitcode":   cmdExitCode,
 		"stdout2env": cmdStdout2Env,
 		"defer":      cmdDefer,
+		"retry":      cmdRetry,
 		"mkproject":  cmdMkProject,
 		"rmproject":  cmdRmProject,
 	}
@@ -76,6 +78,34 @@ func cmdStdout2Env(ts *testscript.TestScript, neg bool, args []string) {
 		value = match[1]
 	}
 	ts.Setenv(args[0], value)
+}
+
+const (
+	retryAttempts = 10
+	retryDelay    = time.Second
+)
+
+// retry runs a command, retrying on failure until it succeeds or the attempt
+// budget runs out. For eventually-consistent GitLab state right after a
+// mutation: diff refs still computing after mr create, a just-pushed branch
+// not yet visible to the merge request API. The last attempt's stdout and
+// stderr stay available to subsequent assertions.
+//
+//	retry gl-axi mr diff $IID
+func cmdRetry(ts *testscript.TestScript, neg bool, args []string) {
+	if neg || len(args) == 0 {
+		ts.Fatalf("usage: retry <prog> [args...]")
+	}
+
+	var err error
+	for attempt := 0; attempt < retryAttempts; attempt++ {
+		if err = ts.Exec(args[0], args[1:]...); err == nil {
+			return
+		}
+		time.Sleep(retryDelay)
+	}
+
+	ts.Fatalf("retry %s: still failing after %d attempts: %v", args[0], retryAttempts, err)
 }
 
 // defer registers a command to run when the script finishes, pass or fail.

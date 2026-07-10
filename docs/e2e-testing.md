@@ -78,6 +78,7 @@ Beyond the [testscript built-ins](https://pkg.go.dev/github.com/rogpeppe/go-inte
 | `exitcode <n> <prog> [args...]` | Run and assert the exact exit code (contract: 0 success/no-op, 1 runtime, 2 usage). `stdout`/`stderr` assertions still apply afterwards. |
 | `stdout2env VAR PATTERN` | Capture a regex group from the last stdout into `$VAR` (e.g. `stdout2env IID 'iid: (\d+)'`). |
 | `defer <prog> [args...]` | Run a command when the script finishes, pass or fail. |
+| `retry <prog> [args...]` | Run a command, retrying up to 10× at 1s intervals until it succeeds. For eventually-consistent state right after a mutation: use it on `mr create` after a fresh push (the branch may not be visible to the API yet) and on the first `mr diff` after a create (diff refs compute asynchronously). |
 | `mkproject <suffix>` | Create fixture project `gl-e2e-<suffix>` under `$GL_E2E_GROUP`; exports `$PROJECT` and `$PROJECT_URL`; deletion is auto-deferred. |
 | `rmproject <suffix>` | Delete a fixture project explicitly (already-gone is fine). |
 
@@ -105,7 +106,7 @@ exec git add change.txt
 exec git commit -m 'add change'
 exec git push -u origin feature
 
-exec gl-axi mr create --title 'My scenario'
+retry gl-axi mr create --title 'My scenario'
 stdout2env IID 'iid: (\d+)'
 
 -- repo/change.txt --

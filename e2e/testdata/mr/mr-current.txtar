@@ -13,7 +13,7 @@ exec git add change.txt
 exec git commit -m 'add change'
 exec git push -u origin feature
 
-exec gl-axi mr create --title 'E2E current ref'
+retry gl-axi mr create --title 'E2E current ref'
 stdout2env IID 'iid: (\d+)'
 
 # mr current and mr view current resolve to the created merge request

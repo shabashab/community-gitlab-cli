@@ -14,11 +14,11 @@ exec git add change.txt
 exec git commit -m 'add change'
 exec git push -u origin feature
 
-exec gl-axi mr create --title 'E2E positioned comments'
+retry gl-axi mr create --title 'E2E positioned comments'
 stdout2env IID 'iid: (\d+)'
 
 # wait for GitLab to finish computing the diff before positioning
-exec gl-axi mr diff $IID
+retry gl-axi mr diff $IID
 stdout 'change.txt'
 
 # comment on an added line: must anchor as a DiffNote on that exact line

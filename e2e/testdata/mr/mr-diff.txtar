@@ -13,11 +13,11 @@ exec git add change.txt
 exec git commit -m 'add change'
 exec git push -u origin feature
 
-exec gl-axi mr create --title 'E2E diff'
+retry gl-axi mr create --title 'E2E diff'
 stdout2env IID 'iid: (\d+)'
 
 # changed-file summary: compact rows plus pinned diff refs
-exec gl-axi mr diff $IID
+retry gl-axi mr diff $IID
 stdout 'diff:'
 stdout 'base_sha: '
 stdout 'head_sha: '

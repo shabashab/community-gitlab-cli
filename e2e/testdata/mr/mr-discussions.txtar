@@ -14,7 +14,7 @@ exec git add change.txt
 exec git commit -m 'add change'
 exec git push -u origin feature
 
-exec gl-axi mr create --title 'E2E discussions'
+retry gl-axi mr create --title 'E2E discussions'
 stdout2env IID 'iid: (\d+)'
 
 # a default comment starts a resolvable discussion thread
