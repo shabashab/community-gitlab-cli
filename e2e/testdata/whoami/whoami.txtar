@@ -1,0 +1,33 @@
+# Current authenticated user through both binaries and output modes.
+# Proves harness plumbing: in-process command registration, env wiring,
+# instance reachability, and token validity.
+
+# gl text mode (default)
+exec gl whoami
+stdout 'username: '
+stdout 'web_url: '
+! stderr .
+
+# gl json mode
+exec gl whoami -o json
+stdout '"username": '
+stdout '"id": '
+! stderr .
+
+# gl-axi toon mode (default): compact user block plus next-step hints
+exec gl-axi whoami
+stdout 'user:'
+stdout 'username: '
+stdout 'help\['
+! stderr .
+
+# gl-axi json mode
+exec gl-axi whoami -o json
+stdout '"username": '
+! stderr .
+
+# missing token is a runtime error (exit 1), not a crash
+env GITLAB_TOKEN=
+env GL_TOKEN=
+exitcode 1 gl whoami
+stderr 'token'

@@ -1,0 +1,59 @@
+name: e2e
+
+# Live E2E suite on GitHub-hosted runners against the instance described
+# entirely by secrets in the `e2e` environment (the instance must be
+# reachable from the public internet). See docs/e2e-testing.md.
+#
+# Gating model:
+# - The `e2e` environment must have required reviewers configured in repo
+#   settings. Every run - including each pull_request run - then sits in
+#   "waiting" until an owner approves it, so nobody can spam the instance
+#   by opening pull requests.
+# - Fork pull requests never receive secrets on the pull_request event
+#   (GitHub guarantee), so even an approved fork run just fails fast at
+#   the harness env gate without touching the instance.
+# - Never switch this to pull_request_target: that event exposes secrets
+#   to workflows in the base repo while building fork code - the classic
+#   exfiltration foot-gun.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'e2e/**'
+      - 'Taskfile.yml'
+      - '.github/workflows/e2e.yml'
+  schedule:
+    - cron: '0 3 * * *'
+
+# One live run at a time; the instance and fixture group are shared state.
+concurrency:
+  group: e2e-live-instance
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    environment: e2e
+    timeout-minutes: 30
+    env:
+      GL_E2E_HOST: ${{ secrets.GL_E2E_HOST }}
+      GL_E2E_GROUP: ${{ secrets.GL_E2E_GROUP }}
+      GL_E2E_TOKEN: ${{ secrets.GL_E2E_TOKEN }}
+      GL_E2E_TOKEN_ALT: ${{ secrets.GL_E2E_TOKEN_ALT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run E2E suite
+        run: go test -tags e2e -count=1 -parallel 4 -timeout 20m ./e2e
+      - name: Sweep leaked fixture projects
+        if: always()
+        run: go run ./e2e/janitor

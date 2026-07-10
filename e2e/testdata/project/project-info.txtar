@@ -1,0 +1,24 @@
+# Project detail view, addressed explicitly and via git origin discovery.
+
+mkproject $SCRIPT_NAME-$RANDOM_STRING
+
+# explicit --project path
+exec gl-axi project info --project $PROJECT
+stdout 'project:'
+stdout 'path_with_namespace: '
+stdout $PROJECT
+stdout 'visibility: private'
+! stderr .
+
+# json parity
+exec gl-axi project info --project $PROJECT -o json
+stdout '"path_with_namespace": '
+! stderr .
+
+# no --project: discovered from remote.origin.url of the enclosing repo
+exec git init repo
+cd repo
+exec git remote add origin $GL_E2E_HOST/$PROJECT.git
+exec gl project info
+stdout $PROJECT
+! stderr .

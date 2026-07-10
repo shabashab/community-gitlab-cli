@@ -11,6 +11,7 @@ package credstore
 import (
 	"errors"
 	"fmt"
+	"os"
 )
 
 // Backend identifies which storage mechanism holds a credential.
@@ -20,6 +21,13 @@ const (
 	BackendKeyring Backend = "keyring"
 	BackendFile    Backend = "file"
 )
+
+// BackendEnv selects the storage backend. The only recognized value is
+// "file", which disables the OS keychain entirely so credentials live in the
+// encrypted file under ~/.gl; any other value keeps the default hybrid
+// behavior. Useful on headless machines where keychain access prompts or
+// hangs, and for test environments that must not touch the real keychain.
+const BackendEnv = "GL_CREDSTORE"
 
 var (
 	ErrNotFound           = errors.New("credential not found")
@@ -31,9 +39,17 @@ var (
 // Store is the hybrid credential store combining the OS keychain with the
 // encrypted file fallback.
 type Store struct {
-	keyring keyringBackend
+	keyring credentialBackend
 	file    *fileBackend
 	fileErr error
+}
+
+// credentialBackend is the keychain-shaped surface Store talks to, so the
+// real keyring can be swapped for the disabled stub via BackendEnv.
+type credentialBackend interface {
+	set(domain, token string) error
+	get(domain string) (string, error)
+	delete(domain string) error
 }
 
 // New builds the hybrid store. A failure to locate the credentials file (no
@@ -41,7 +57,13 @@ type Store struct {
 func New() *Store {
 	file, err := newFileBackend()
 
+	var kr credentialBackend = keyringBackend{}
+	if os.Getenv(BackendEnv) == string(BackendFile) {
+		kr = disabledKeyringBackend{}
+	}
+
 	return &Store{
+		keyring: kr,
 		file:    file,
 		fileErr: err,
 	}

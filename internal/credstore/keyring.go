@@ -43,3 +43,17 @@ func (keyringBackend) delete(domain string) error {
 
 	return nil
 }
+
+// disabledKeyringBackend replaces the OS keychain when BackendEnv selects the
+// file backend. Writes fail so Store.Set falls through to the file, and reads
+// report not-found so lookups and status probes skip the keychain without
+// warnings.
+type disabledKeyringBackend struct{}
+
+var errKeyringDisabled = fmt.Errorf("keyring disabled by %s=%s", BackendEnv, BackendFile)
+
+func (disabledKeyringBackend) set(string, string) error { return errKeyringDisabled }
+
+func (disabledKeyringBackend) get(string) (string, error) { return "", ErrNotFound }
+
+func (disabledKeyringBackend) delete(string) error { return ErrNotFound }

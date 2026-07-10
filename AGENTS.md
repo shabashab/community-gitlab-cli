@@ -49,6 +49,8 @@ The project includes another binary named `gl-axi`. That binary is intended to b
 - `docs/axi-output.md`: detailed gl-axi output contract — per-command shapes, `--fields`, truncation, count lines, help-hint rules; update when changing axi output.
 - `docs/errors-and-exit-codes.md`: error model reference — structured error shape, error-code table, exit codes, API error translation; update when adding error codes.
 - `docs/agent-integrations.md`: session-integration reference — `setup hooks` per-app behavior, `context` command contract, Agent Skill; update when changing `internal/agenthooks` or the context output.
+- `docs/e2e-testing.md`: E2E/UAT suite reference — instance provisioning, `GL_E2E_*` env vars, custom script commands, script-writing rules, UAT checklist; update when changing the `e2e/` harness or adding scripts.
+- `e2e/`: live-instance E2E suite (`//go:build e2e`) — testscript harness (`e2e_test.go`, `params.go`, `cmds.go`, `fixtures.go`), `.txtar` scenarios under `testdata/<family>/`, and `janitor/` (untagged) sweeping leaked `gl-e2e-*` fixture projects.
 - `internal/gitlabclient/config.go`: shared GitLab client-go configuration and client construction.
 - `internal/repo/discovery.go`: shared git origin discovery and remote URL parsing.
 - `internal/credstore/`: hybrid credential store — OS keychain via `github.com/zalando/go-keyring` with an encrypted-file fallback at `~/.gl/credentials.json`; `store.go` is the hybrid entry point, `domain.go` canonicalizes base URLs into credential keys, `crypto.go`/`file.go` implement the encrypted file backend, `keyring.go` wraps the OS keychain.
@@ -119,6 +121,16 @@ When to run it:
 - After changing Go source files.
 - Before handing off behavior that should be covered by automated tests.
 
+### `task e2e` / `task e2e:clean`
+
+Runs the live-instance E2E suite (`go test -tags e2e -count=1 -parallel 4 -timeout 20m ./e2e`); `e2e:clean` sweeps leaked `gl-e2e-*` fixture projects via `e2e/janitor`. Both require `GL_E2E_HOST`, `GL_E2E_TOKEN`, and `GL_E2E_GROUP`, exported or placed in a gitignored `.test.env` at the repo root which both tasks load automatically (see `docs/e2e-testing.md`).
+
+When to run it:
+
+- Before and after invasive refactors, to prove command behavior is unchanged against real GitLab.
+- Before releases, as the UAT pass.
+- Filter with `task e2e -- -run 'TestMR/mr-lifecycle'` during script development.
+
 ### `task client-go-source`
 
 Downloads the official GitLab client-go module if needed and prints its local module-cache metadata, including the exact `Dir` path agents can inspect with `rg`, `sed`, or `go doc`.
@@ -176,6 +188,7 @@ Stored credentials (`auth` command suite):
 - `auth login <token> --gitlab-base-url <url>` verifies the token via CurrentUser, then stores it keyed by the canonical host. `--gitlab-base-url` must be passed explicitly for login; the env var is not accepted there.
 - `auth logout` and `auth status` resolve the host through the normal chain (`--gitlab-base-url`, `GITLAB_BASE_URL`, discovered origin, default), so `auth status` answers "would a command run from here find a credential?".
 - Storage is hybrid: OS keychain (service `community-gitlab-cli`) when available, otherwise an encrypted JSON file at `~/.gl/credentials.json` (dir `0700`, file `0600`). The file never contains the domain or token in plaintext: entries are located by a salted SHA-256 domain hash and tokens are AES-256-GCM sealed with an Argon2id key derived from the domain, so a credential is only recoverable by a caller that already knows the host. This is obfuscation plus domain-binding against casual file scraping, not brute-force resistance against a targeted attacker.
+- `GL_CREDSTORE=file` (`credstore.BackendEnv`) disables the keychain entirely: writes go straight to the encrypted file and keychain probes report not-found without warnings. The E2E harness sets it so `auth` scripts never touch the real OS keychain; it is also useful on headless machines. Unrecognized values keep the hybrid default.
 - Keep all credential persistence inside `internal/credstore`; CLI code composes it in `rootOptions.newGitLabClientWithBaseURLFallback` as the last token source, and lookup failures degrade silently to the missing-token error.
 
 Project-aware commands use `internal/repo` to discover the current project from `remote.origin.url`. Only the remote named `origin` is read by default. Instance URL precedence for project-aware commands is `--gitlab-base-url`, then `GITLAB_BASE_URL`, then the discovered origin host, then `https://gitlab.com`. Use the shared `--project` flag for commands that need an explicit project outside the current repository; it accepts either a numeric GitLab project ID or a full path such as `group/subgroup/project`.
@@ -225,6 +238,28 @@ Helpful starting points inside the client-go source:
 ## Testing Guide For Agents
 
 Run tests with `task test` (`go test ./...`). Tests live next to their package (`internal/cli/*_test.go`, `internal/repo/discovery_test.go`). There are no interface mocks and no golden files — read this section before writing a test so you match the house style on the first attempt.
+
+A separate live-instance E2E/UAT suite lives in `e2e/` (`//go:build e2e`, testscript `.txtar` scripts, `task e2e`) — see `docs/e2e-testing.md` for provisioning, the custom script commands, and how to write scenarios. It never runs under `task test`; use it to verify behavior end to end around refactors.
+
+### E2E scripts are part of the definition of done
+
+Unit tests alone do not finish a change to the command surface. Apply these rules whenever you touch `internal/cli`:
+
+- **New command or subcommand** → add a `.txtar` scenario under `e2e/testdata/<family>/` covering its happy path, its verified no-op (if the mutation is idempotent), and at least one coded error path (`exitcode` + `stdout 'code: ...'`). Register a new family in `e2e/e2e_test.go` only when a new top-level command warrants its own testdata directory.
+- **New flag or behavior change on an existing command** → extend that command's existing scenario rather than adding a near-duplicate script; scripts are living UAT documentation, one scenario per workflow.
+- **Changed output shape, help hint, error code, or exit code** → grep `e2e/testdata/` for the old fragment and update every affected assertion in the same commit as the product change; also update `docs/axi-output.md` / `docs/errors-and-exit-codes.md` as usual.
+- **Any of the above** → update the UAT checklist table in `docs/e2e-testing.md` so release verification stays a complete map of the command surface.
+
+Script style rules (learned from live runs — follow them, they are not optional):
+
+- Scripts are self-fixturing and parallel-safe: build your own project with `mkproject $SCRIPT_NAME-$RANDOM_STRING` and the canonical prologue; never reference fixtures another script created.
+- Assert fragments, not whole documents; use the `exitcode` command for the 0/1/2 contract and `! stderr .` / `! stdout .` for channel checks.
+- Wrap eventually-consistent calls in `retry`: `mr create` right after a push, the first `mr diff` after a create, `mr merge` right after a reopen. When a new flake appears, prefer adding `retry` at the call site over sleeps.
+- TOON quotes strings that look like other types (an all-digit id renders as `"42991560"`) — make id captures quote-tolerant: `stdout2env DISC 'discussion_id: "?([0-9a-f]{8})'`.
+- Single quotes suppress `$VAR` expansion; concatenate instead: `stdout 'iid: '$IID`.
+- Gate scripts needing extra environment behind condition markers (`[second-token]`, `[premium]`), never behind silent skips in Go code.
+
+If live credentials (`GL_E2E_*` / `.test.env`) are available in your session, run at least the affected family (`task e2e -- -run TestMR`) before handing off. If they are not, still write the scripts, verify `go vet -tags e2e ./e2e` compiles them, and state explicitly in your handoff that the live run is pending.
 
 ### CLI tests stub GitLab with httptest
 
@@ -301,4 +336,5 @@ Keep the description imperative, concise, and specific. Prefer one logical chang
 - Keep generated binaries and transient local outputs out of source changes unless explicitly requested.
 - Prefer adding task commands to `Taskfile.yml` when a workflow becomes repeated or important for agentic development.
 - Run `task test` after changing Go source files.
+- Changes to the command surface (new commands, flags, output shapes, error codes) also require adding or updating E2E scripts under `e2e/testdata/` — see "E2E scripts are part of the definition of done" in the Testing Guide. Run the affected family with `task e2e -- -run Test<Family>` when `.test.env` credentials are present.
 - Preserve scriptability when adding CLI behavior: stable flags, clear stdout/stderr separation, useful exit codes, and machine-readable output where appropriate.
