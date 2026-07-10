@@ -110,6 +110,63 @@ func TestStoreSetRemovesStaleFileEntry(t *testing.T) {
 	}
 }
 
+func TestStoreBackendEnvFileBypassesKeyring(t *testing.T) {
+	keyring.MockInit()
+	t.Setenv(BackendEnv, string(BackendFile))
+	store := newTestStore(t)
+
+	backend, err := store.Set("gitlab.example.com", "glpat-secret")
+	if err != nil {
+		t.Fatalf("Set error = %v", err)
+	}
+	if backend != BackendFile {
+		t.Fatalf("Set backend = %q, want file", backend)
+	}
+
+	// The working (mocked) keyring must not have been touched.
+	if _, err := (keyringBackend{}).get("gitlab.example.com"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("keyring get error = %v, want ErrNotFound", err)
+	}
+
+	token, backend, err := store.Get("gitlab.example.com")
+	if err != nil {
+		t.Fatalf("Get error = %v", err)
+	}
+	if token != "glpat-secret" || backend != BackendFile {
+		t.Fatalf("Get = %q from %q, want token from file", token, backend)
+	}
+
+	status := store.Status("gitlab.example.com")
+	if len(status.Backends) != 1 || status.Backends[0] != BackendFile {
+		t.Fatalf("Status backends = %v, want [file]", status.Backends)
+	}
+	if len(status.Warnings) != 0 {
+		t.Fatalf("Status warnings = %v, want none (disabled keyring is silent)", status.Warnings)
+	}
+
+	removed, err := store.Delete("gitlab.example.com")
+	if err != nil {
+		t.Fatalf("Delete error = %v", err)
+	}
+	if len(removed) != 1 || removed[0] != BackendFile {
+		t.Fatalf("Delete removed = %v, want [file]", removed)
+	}
+}
+
+func TestStoreBackendEnvUnrecognizedValueKeepsHybrid(t *testing.T) {
+	keyring.MockInit()
+	t.Setenv(BackendEnv, "keyring-please")
+	store := newTestStore(t)
+
+	backend, err := store.Set("gitlab.example.com", "glpat-secret")
+	if err != nil {
+		t.Fatalf("Set error = %v", err)
+	}
+	if backend != BackendKeyring {
+		t.Fatalf("Set backend = %q, want keyring", backend)
+	}
+}
+
 func TestStoreNotFound(t *testing.T) {
 	keyring.MockInit()
 	store := newTestStore(t)

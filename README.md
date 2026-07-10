@@ -176,6 +176,7 @@ gl auth logout                                                 # remove the stor
 - `auth logout` and `auth status` resolve the host like every other command: `--gitlab-base-url`, then `GITLAB_BASE_URL`, then the discovered git origin, then `https://gitlab.com`.
 - `auth logout` is idempotent: with no stored credential it acknowledges the no-op and exits 0.
 - Credentials are stored in the OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service) when available. On headless systems the fallback is an encrypted file at `~/.gl/credentials.json` (`0700` directory, `0600` file) that contains neither the host nor the token in plaintext: hosts are stored as salted hashes and tokens are AES-256-GCM encrypted with a key derived from the host via Argon2id. This protects against opportunistic file scraping; it is not a defense against a targeted attacker who can guess common GitLab hostnames.
+- Set `GL_CREDSTORE=file` to skip the OS keychain entirely and use only the encrypted file. Useful where keychain access prompts or hangs (SSH sessions, CI, sandboxes) and for test environments that must not touch the real keychain. Any other value keeps the default hybrid behavior.
 - Explicit `--gitlab-token` or environment tokens always take precedence over stored credentials.
 
 ## Merge Requests
