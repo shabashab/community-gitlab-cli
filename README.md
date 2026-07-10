@@ -11,6 +11,7 @@ Detailed reference pages live under `docs/`:
 - [gl-axi Output Reference](docs/axi-output.md) — TOON format, per-command output shapes, `--fields`, truncation, counts, and help-hint rules.
 - [Errors and Exit Codes](docs/errors-and-exit-codes.md) — the structured error shape, error-code table, exit codes, and GitLab API error translation.
 - [Agent Session Integrations](docs/agent-integrations.md) — `setup hooks`, the `context` command contract, and the installable Agent Skill.
+- [E2E / UAT Testing](docs/e2e-testing.md) — the live-instance testscript suite: provisioning, running, writing scripts, cleanup, and the UAT checklist.
 
 ## Project Stack
 

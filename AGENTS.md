@@ -49,6 +49,8 @@ The project includes another binary named `gl-axi`. That binary is intended to b
 - `docs/axi-output.md`: detailed gl-axi output contract — per-command shapes, `--fields`, truncation, count lines, help-hint rules; update when changing axi output.
 - `docs/errors-and-exit-codes.md`: error model reference — structured error shape, error-code table, exit codes, API error translation; update when adding error codes.
 - `docs/agent-integrations.md`: session-integration reference — `setup hooks` per-app behavior, `context` command contract, Agent Skill; update when changing `internal/agenthooks` or the context output.
+- `docs/e2e-testing.md`: E2E/UAT suite reference — instance provisioning, `GL_E2E_*` env vars, custom script commands, script-writing rules, UAT checklist; update when changing the `e2e/` harness or adding scripts.
+- `e2e/`: live-instance E2E suite (`//go:build e2e`) — testscript harness (`e2e_test.go`, `params.go`, `cmds.go`, `fixtures.go`), `.txtar` scenarios under `testdata/<family>/`, and `janitor/` (untagged) sweeping leaked `gl-e2e-*` fixture projects.
 - `internal/gitlabclient/config.go`: shared GitLab client-go configuration and client construction.
 - `internal/repo/discovery.go`: shared git origin discovery and remote URL parsing.
 - `internal/credstore/`: hybrid credential store — OS keychain via `github.com/zalando/go-keyring` with an encrypted-file fallback at `~/.gl/credentials.json`; `store.go` is the hybrid entry point, `domain.go` canonicalizes base URLs into credential keys, `crypto.go`/`file.go` implement the encrypted file backend, `keyring.go` wraps the OS keychain.
@@ -118,6 +120,16 @@ When to run it:
 
 - After changing Go source files.
 - Before handing off behavior that should be covered by automated tests.
+
+### `task e2e` / `task e2e:clean`
+
+Runs the live-instance E2E suite (`go test -tags e2e -count=1 -parallel 4 -timeout 20m ./e2e`); `e2e:clean` sweeps leaked `gl-e2e-*` fixture projects via `e2e/janitor`. Both require `GL_E2E_HOST`, `GL_E2E_TOKEN`, and `GL_E2E_GROUP` (see `docs/e2e-testing.md`).
+
+When to run it:
+
+- Before and after invasive refactors, to prove command behavior is unchanged against real GitLab.
+- Before releases, as the UAT pass.
+- Filter with `task e2e -- -run 'TestMR/mr-lifecycle'` during script development.
 
 ### `task client-go-source`
 
@@ -226,6 +238,8 @@ Helpful starting points inside the client-go source:
 ## Testing Guide For Agents
 
 Run tests with `task test` (`go test ./...`). Tests live next to their package (`internal/cli/*_test.go`, `internal/repo/discovery_test.go`). There are no interface mocks and no golden files — read this section before writing a test so you match the house style on the first attempt.
+
+A separate live-instance E2E/UAT suite lives in `e2e/` (`//go:build e2e`, testscript `.txtar` scripts, `task e2e`) — see `docs/e2e-testing.md` for provisioning, the custom script commands, and how to write scenarios. It never runs under `task test`; use it to verify behavior end to end around refactors. Keep new scripts fragment-asserting and self-fixturing like the existing ones, and update the doc's UAT checklist when adding one.
 
 ### CLI tests stub GitLab with httptest
 
