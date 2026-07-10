@@ -1,22 +1,35 @@
 name: e2e
 
 # Live E2E suite on GitHub-hosted runners against the instance described
-# entirely by repository secrets (the instance must be reachable from the
-# public internet). See docs/e2e-testing.md for provisioning.
+# entirely by secrets in the `e2e` environment (the instance must be
+# reachable from the public internet). See docs/e2e-testing.md.
 #
-# Fork safety: there is deliberately no pull_request trigger, so this
-# workflow never runs with fork code against the instance. Forks that
-# dispatch it run with their own (empty) secrets and fail fast at the
-# harness env gate. Do not add pull_request or pull_request_target here.
-#
-# The `e2e` environment holds the secrets; add protection rules (required
-# reviewers) in repo settings for an extra approval gate on manual runs.
+# Gating model:
+# - The `e2e` environment must have required reviewers configured in repo
+#   settings. Every run - including each pull_request run - then sits in
+#   "waiting" until an owner approves it, so nobody can spam the instance
+#   by opening pull requests.
+# - Fork pull requests never receive secrets on the pull_request event
+#   (GitHub guarantee), so even an approved fork run just fails fast at
+#   the harness env gate without touching the instance.
+# - Never switch this to pull_request_target: that event exposes secrets
+#   to workflows in the base repo while building fork code - the classic
+#   exfiltration foot-gun.
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'e2e/**'
+      - 'Taskfile.yml'
+      - '.github/workflows/e2e.yml'
   schedule:
     - cron: '0 3 * * *'
 
+# One live run at a time; the instance and fixture group are shared state.
 concurrency:
   group: e2e-live-instance
   cancel-in-progress: false

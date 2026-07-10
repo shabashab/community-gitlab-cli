@@ -130,11 +130,12 @@ Three layers keep the instance clean: scripts' own deferred deletes, the auto-de
 
 ## CI
 
-`.github/workflows/e2e.yml` runs the suite nightly and on manual dispatch, on GitHub-hosted runners. The instance must be reachable from the public internet.
+`.github/workflows/e2e.yml` runs the suite on pull requests (code paths only), nightly, and on manual dispatch, on GitHub-hosted runners. The instance must be reachable from the public internet.
 
 - **Everything instance-related is a secret** (`GL_E2E_HOST`, `GL_E2E_GROUP`, `GL_E2E_TOKEN`, `GL_E2E_TOKEN_ALT`), stored in the `e2e` environment. Host and group are secrets, not variables, on purpose: this is a public repository, Actions logs are public, and testscript failure output echoes commands containing `$GL_E2E_HOST` — secret values are masked in logs, variables are not.
-- **Fork safety**: the workflow has no `pull_request` trigger, so fork code never runs against the instance with upstream secrets (GitHub never passes secrets to fork PRs anyway, and scheduled workflows are disabled in forks by default). A fork dispatching the workflow uses its own empty secrets and dies at the harness env gate. Never add `pull_request` or `pull_request_target` triggers to this file.
-- **Approval gate (optional)**: add required reviewers to the `e2e` environment in repo settings to make every run — including manual dispatches by collaborators — require explicit approval.
+- **Approval gate (required, configured in repo settings)**: the `e2e` environment must have required reviewers set. Every run — each pull request run included — then waits for an owner's approval before starting, so opening pull requests cannot spam the instance. Without that settings-side rule, same-repo pull request runs would start automatically.
+- **Fork safety**: GitHub never passes secrets to `pull_request` runs from forks, so even an approved fork run fails fast at the harness env gate without reaching the instance. Fork pull requests therefore show a failed e2e check — that is expected; run their changes locally or re-push them from a branch in this repository. Never switch the trigger to `pull_request_target`, which would expose secrets while building fork code.
+- One run at a time (`concurrency`): the instance and fixture group are shared state.
 - The janitor runs as an always-on post-step, so an aborted CI run cannot leave fixture projects behind for longer than the next run.
 
 ## UAT checklist
