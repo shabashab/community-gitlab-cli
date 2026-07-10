@@ -42,6 +42,19 @@ task e2e -- -v -run 'TestMR/mr-lifecycle' # verbose: full command/output log
 task e2e:clean                            # sweep leaked gl-e2e-* projects (>1h old)
 ```
 
+Instead of exporting the variables, you can put them in a `.test.env` file at the repository root — `task e2e` and `task e2e:clean` load it automatically when present (it is gitignored; never commit it):
+
+```sh
+# .test.env
+GL_E2E_HOST=https://gitlab.example.com
+GL_E2E_TOKEN=glpat-...
+GL_E2E_GROUP=gl-e2e
+# GL_E2E_TOKEN_ALT=glpat-...
+# GL_E2E_PREMIUM=1
+```
+
+Variables already set in the shell take precedence over the file.
+
 `task e2e` runs `go test -tags e2e -count=1 -parallel 4 -timeout 20m ./e2e`. `-count=1` defeats the test cache (a cached "pass" proves nothing about the live instance); `-parallel 4` bounds concurrent scripts — raise it if the instance handles it. Without `-tags e2e`, `go test ./...` never compiles the package, so the unit suite stays hermetic.
 
 On failure testscript prints the executed script with each command's stdout/stderr and the failing assertion. Pass `-testwork` to keep the script workdir (`$WORK`) for inspection.

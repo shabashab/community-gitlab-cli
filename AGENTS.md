@@ -123,7 +123,7 @@ When to run it:
 
 ### `task e2e` / `task e2e:clean`
 
-Runs the live-instance E2E suite (`go test -tags e2e -count=1 -parallel 4 -timeout 20m ./e2e`); `e2e:clean` sweeps leaked `gl-e2e-*` fixture projects via `e2e/janitor`. Both require `GL_E2E_HOST`, `GL_E2E_TOKEN`, and `GL_E2E_GROUP` (see `docs/e2e-testing.md`).
+Runs the live-instance E2E suite (`go test -tags e2e -count=1 -parallel 4 -timeout 20m ./e2e`); `e2e:clean` sweeps leaked `gl-e2e-*` fixture projects via `e2e/janitor`. Both require `GL_E2E_HOST`, `GL_E2E_TOKEN`, and `GL_E2E_GROUP`, exported or placed in a gitignored `.test.env` at the repo root which both tasks load automatically (see `docs/e2e-testing.md`).
 
 When to run it:
 
