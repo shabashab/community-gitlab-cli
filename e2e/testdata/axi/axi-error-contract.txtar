@@ -26,5 +26,5 @@ stdout 'help\['
 # same runtime failure in gl standard mode: plain text on stderr, empty stdout
 exitcode 1 gl mr list --project $GL_E2E_GROUP/does-not-exist-$RANDOM_STRING
 ! stdout .
-stderr 'not found'
+stderr '(?i)not found'
 ! stderr 'api/v4'

@@ -66,6 +66,7 @@ func setupScriptEnv(host, token, group string) func(env *testscript.Env) error {
 		env.Setenv("GITLAB_BASE_URL", host)
 		env.Setenv("GITLAB_TOKEN", token)
 		env.Setenv(envHost, host)
+		env.Setenv(envToken, token)
 		env.Setenv(envGroup, group)
 		if alt := os.Getenv(envTokenAlt); alt != "" {
 			env.Setenv(envTokenAlt, alt)
