@@ -38,10 +38,18 @@ exec gl-axi mr discussion react $IID $DISC $NOTE thumbsup
 stdout 'action: react'
 stdout 'noop: true'
 
-# the thread view always shows per-note reactions
+# a different emoji on the same note is a separate award, not a duplicate
+exec gl-axi mr discussion react $IID $DISC $NOTE rocket
+stdout 'action: react'
+stdout 'emoji: rocket'
+! stdout 'noop'
+
+# the thread view always shows per-note reactions; several emoji on one note
+# render as separate groups
 exec gl-axi mr discussion $IID $DISC
 stdout 'notes\[1\]\{id,author,created_at,updated_at,system,reactions,body\}:'
 stdout 'thumbsup:1'
+stdout 'rocket:1'
 ! stderr .
 
 # the list aggregates reactions only behind --reactions
@@ -51,7 +59,15 @@ stdout 'thumbsup:1'
 exec gl-axi mr discussions $IID
 ! stdout 'thumbsup'
 
-# unreact removes the award; a second unreact is a verified no-op
+# unreact removes only the named award; the other emoji survives
+exec gl-axi mr discussion unreact $IID $DISC $NOTE rocket
+stdout 'action: unreact'
+! stdout 'noop'
+exec gl-axi mr discussion $IID $DISC
+stdout 'thumbsup:1'
+! stdout 'rocket'
+
+# a second unreact of the remaining award, then one more as a verified no-op
 exec gl-axi mr discussion unreact $IID $DISC $NOTE thumbsup
 stdout 'action: unreact'
 ! stdout 'noop'

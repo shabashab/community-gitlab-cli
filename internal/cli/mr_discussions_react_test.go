@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/shabashab/community-gitlab-cli/internal/cli/output"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 
 const currentUserPath = "/api/v4/user"
@@ -218,7 +219,9 @@ func TestMRDiscussionUnreactDeletesOwnAward(t *testing.T) {
 		case currentUserPath:
 			fmt.Fprint(w, `{"id":7,"username":"me"}`)
 		case noteAwardPath(901):
-			fmt.Fprint(w, "["+awardJSON(55, "thumbsup", "me", 7)+","+awardJSON(56, "thumbsup", "bob", 8)+"]")
+			// The note carries several reactions: the caller's thumbsup and
+			// rocket, plus bob's thumbsup.
+			fmt.Fprint(w, "["+awardJSON(55, "thumbsup", "me", 7)+","+awardJSON(56, "thumbsup", "bob", 8)+","+awardJSON(57, "rocket", "me", 7)+"]")
 		default:
 			t.Errorf("unexpected request path %s", r.URL.EscapedPath())
 			w.WriteHeader(http.StatusNotFound)
@@ -231,7 +234,8 @@ func TestMRDiscussionUnreactDeletesOwnAward(t *testing.T) {
 		t.Fatalf("Execute returned error: %v", err)
 	}
 
-	// Only the caller's own award may be deleted, never another user's.
+	// Only the caller's own award with the requested emoji may be deleted —
+	// never another user's thumbsup, and never the caller's other emoji.
 	if len(deletedPaths) != 1 || deletedPaths[0] != noteAwardPath(901)+"/55" {
 		t.Fatalf("expected one DELETE of award 55, got %v", deletedPaths)
 	}
@@ -443,6 +447,193 @@ func TestMRDiscussionsReactionsFlagAggregates(t *testing.T) {
 			t.Errorf("expected no reactions column by default, got:\n%s", got)
 		}
 	})
+}
+
+// mixedAwardsJSON is the multi-emoji, multi-user fixture for note 901:
+// rocket ×3 (mona, alice, bob), thumbsup ×2 (bob, alice — alice awards two
+// different emoji), heart ×1 (zed). Intentionally unsorted to prove the
+// formatter orders deterministically.
+func mixedAwardsJSON() string {
+	return "[" + strings.Join([]string{
+		awardJSON(60, "thumbsup", "bob", 8),
+		awardJSON(61, "rocket", "mona", 9),
+		awardJSON(62, "heart", "zed", 10),
+		awardJSON(63, "rocket", "alice", 7),
+		awardJSON(64, "thumbsup", "alice", 7),
+		awardJSON(65, "rocket", "bob", 8),
+	}, ",") + "]"
+}
+
+func mixedAwards(t *testing.T) []*gitlab.AwardEmoji {
+	t.Helper()
+
+	var awards []*gitlab.AwardEmoji
+	if err := json.Unmarshal([]byte(mixedAwardsJSON()), &awards); err != nil {
+		t.Fatalf("unmarshal mixed awards fixture: %v", err)
+	}
+
+	return awards
+}
+
+func TestFormatNoteReactions(t *testing.T) {
+	t.Run("multiple emoji by multiple people", func(t *testing.T) {
+		// Groups order by count desc, then name asc; usernames sort asc.
+		want := "rocket:3(alice,bob,mona) thumbsup:2(alice,bob) heart:1(zed)"
+		if got := output.FormatNoteReactions(mixedAwards(t)); got != want {
+			t.Errorf("expected %q, got %q", want, got)
+		}
+	})
+
+	t.Run("count ties break by name", func(t *testing.T) {
+		var awards []*gitlab.AwardEmoji
+		body := "[" + awardJSON(70, "thumbsup", "alice", 7) + "," + awardJSON(71, "rocket", "alice", 7) + "]"
+		if err := json.Unmarshal([]byte(body), &awards); err != nil {
+			t.Fatalf("unmarshal awards: %v", err)
+		}
+		want := "rocket:1(alice) thumbsup:1(alice)"
+		if got := output.FormatNoteReactions(awards); got != want {
+			t.Errorf("expected %q, got %q", want, got)
+		}
+	})
+
+	t.Run("empty and nil entries", func(t *testing.T) {
+		if got := output.FormatNoteReactions(nil); got != "" {
+			t.Errorf("expected empty string for no awards, got %q", got)
+		}
+		if got := output.FormatNoteReactions([]*gitlab.AwardEmoji{nil}); got != "" {
+			t.Errorf("expected nil entries to be skipped, got %q", got)
+		}
+	})
+}
+
+func TestAggregateReactions(t *testing.T) {
+	want := "rocket:3 thumbsup:2 heart:1"
+	if got := output.AggregateReactions(mixedAwards(t)); got != want {
+		t.Errorf("expected %q, got %q", want, got)
+	}
+
+	if got := output.AggregateReactions(nil); got != "" {
+		t.Errorf("expected empty string for no awards, got %q", got)
+	}
+}
+
+func TestMRDiscussionViewShowsMixedReactions(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.EscapedPath() {
+		case discussionsListPath + "/" + discussionIDUnresolvedAlice:
+			fmt.Fprint(w, aliceThreadJSON())
+		case noteAwardPath(901):
+			fmt.Fprint(w, mixedAwardsJSON())
+		case noteAwardPath(902):
+			fmt.Fprint(w, "["+awardJSON(80, "eyes", "mona", 9)+"]")
+		default:
+			t.Errorf("unexpected request path %s", r.URL.EscapedPath())
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	got, err := executeDiscussionCommand(t, commandModeAxi, server.URL, "mr", "discussion", "123", discussionIDUnresolvedAlice)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	// Each note renders its own groups; reactions never bleed across notes.
+	for _, want := range []string{
+		"rocket:3(alice,bob,mona) thumbsup:2(alice,bob) heart:1(zed)",
+		"eyes:1(mona)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected view to contain %q, got:\n%s", want, got)
+		}
+	}
+}
+
+func TestMRDiscussionReactOtherEmojiOrUserIsNotNoop(t *testing.T) {
+	// GitLab's duplicate 404 must only become a no-op when the caller's own
+	// award with the requested emoji exists — awards of the same emoji by
+	// other users, or of other emoji by the caller, do not count.
+	cases := []struct {
+		name   string
+		awards string
+	}{
+		{name: "own award has a different emoji", awards: "[" + awardJSON(55, "thumbsup", "me", 7) + "]"},
+		{name: "same emoji awarded only by others", awards: "[" + awardJSON(56, "rocket", "bob", 8) + "," + awardJSON(57, "rocket", "mona", 9) + "]"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.EscapedPath() {
+				case discussionsListPath + "/" + discussionIDUnresolvedAlice:
+					fmt.Fprint(w, aliceThreadJSON())
+				case currentUserPath:
+					fmt.Fprint(w, `{"id":7,"username":"me"}`)
+				case noteAwardPath(901):
+					switch r.Method {
+					case http.MethodPost:
+						w.WriteHeader(http.StatusNotFound)
+						fmt.Fprint(w, `{"message":"404 Not Found"}`)
+					case http.MethodGet:
+						fmt.Fprint(w, tc.awards)
+					default:
+						t.Errorf("unexpected method %s", r.Method)
+						w.WriteHeader(http.StatusMethodNotAllowed)
+					}
+				default:
+					t.Errorf("unexpected request path %s", r.URL.EscapedPath())
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			t.Cleanup(server.Close)
+
+			_, err := executeDiscussionCommand(t, commandModeAxi, server.URL, "mr", "discussion", "react", "123", discussionIDUnresolvedAlice, "901", "rocket")
+			if err == nil {
+				t.Fatal("expected the 404 to stay an error, not a verified no-op")
+			}
+			if exitCodeForError(err) != 1 {
+				t.Errorf("expected exit code 1, got %d", exitCodeForError(err))
+			}
+		})
+	}
+}
+
+func TestMRDiscussionUnreactOnlyOtherUsersAwardsIsNoop(t *testing.T) {
+	// Several people reacted with the requested emoji, but none of the awards
+	// belong to the caller: verified no-op, and nobody's award is deleted.
+	var deleteCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			deleteCount++
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		switch r.URL.EscapedPath() {
+		case discussionsListPath + "/" + discussionIDUnresolvedAlice:
+			fmt.Fprint(w, aliceThreadJSON())
+		case currentUserPath:
+			fmt.Fprint(w, `{"id":7,"username":"me"}`)
+		case noteAwardPath(901):
+			fmt.Fprint(w, "["+awardJSON(56, "rocket", "bob", 8)+","+awardJSON(57, "rocket", "mona", 9)+","+awardJSON(58, "thumbsup", "bob", 8)+"]")
+		default:
+			t.Errorf("unexpected request path %s", r.URL.EscapedPath())
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	got, err := executeDiscussionCommand(t, commandModeAxi, server.URL, "mr", "discussion", "unreact", "123", discussionIDUnresolvedAlice, "901", "rocket")
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if deleteCount != 0 {
+		t.Fatalf("other users' awards must never be deleted, got %d DELETEs", deleteCount)
+	}
+	if !strings.Contains(got, "noop: true") {
+		t.Errorf("expected a verified no-op, got:\n%s", got)
+	}
 }
 
 func TestWriteDiscussionReactionStandardModes(t *testing.T) {
