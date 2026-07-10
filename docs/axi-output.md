@@ -170,6 +170,7 @@ help[1]: Run `mr discussion 123 <id>` for the full conversation
 - Sorting: `--order-by created_at|updated_at` plus `--sort asc|desc` (default `created_at asc`, the API order). `--order-by updated_at --sort desc` answers "what changed most recently?".
 - Paging: `--limit` (default 20) and `--page` apply to the filtered result. Next-page hints re-emit every non-default filter flag so the suggested command is runnable as-is.
 - Empty results are explicit (`discussions[0]:` + `count: 0 of 0 total`) with a filter-relaxation hint; when system discussions were excluded, a second hint states how many.
+- `--reactions` adds a per-thread emoji aggregate column (`reactions`, space-joined `name:count` groups, most-awarded first). It is opt-in because the notes API carries no award data: enabling it costs one extra API call per note of the page rows only.
 
 ## Discussion thread view
 
@@ -184,13 +185,14 @@ discussion:
   line: 42
   updated_at: "2026-07-03T12:00:00Z"
   notes: 2
-notes[2]{id,author,created_at,updated_at,system,body}:
-  901,alice,"2026-07-01T08:00:00Z","2026-07-03T12:00:00Z",false,"This branch check looks inverted.\nSee the loop above."
-  902,bob,"2026-07-02T09:00:00Z","2026-07-02T09:00:00Z",false,Agreed - needs a fix
+notes[2]{id,author,created_at,updated_at,system,reactions,body}:
+  901,alice,"2026-07-01T08:00:00Z","2026-07-03T12:00:00Z",false,"thumbsup:2(bob,mona)","This branch check looks inverted.\nSee the loop above."
+  902,bob,"2026-07-02T09:00:00Z","2026-07-02T09:00:00Z",false,,Agreed - needs a fix
 ```
 
 - `<discussion-id>` is the full 40-character hex ID (fetched directly) or any unique prefix (resolved against the thread list, case-insensitive). An ambiguous prefix is a usage error (`ambiguous_discussion_ref`, exit 2) stating the match count; a prefix matching nothing is `discussion_not_found` (exit 1). A full ID that does not exist surfaces as the API's `gitlab_not_found`.
 - `file`/`line` appear only for diff threads; `resolved_by`/`resolved_at` only for resolved threads.
+- `reactions` is always fetched (the view is self-contained; threads are small, so the one-call-per-note cost stays bounded). Groups render as space-joined `name:count(user1,user2)`, most-awarded first, usernames sorted; a note without reactions has an empty cell.
 
 ## Discussion resolve actions
 
@@ -230,6 +232,40 @@ help[2]:
 - The command reads the thread first so already-resolved/already-unresolved states are reported as verified no-ops without issuing a mutation.
 - Non-resolvable threads (`state: none`, such as system activity or plain notes) fail with `discussion_not_resolvable`, exit 1.
 - In axi mode, `discussion.id` is the 8-character prefix; JSON and standard `gl` output keep the full ID.
+
+## Discussion note reactions
+
+`gl-axi mr discussion react <!iid|iid|current> <discussion-id> <note-id> <emoji>` awards an emoji reaction to one note of a thread; `gl-axi mr discussion unreact` removes your own award. `<discussion-id>` accepts the same full IDs and unique prefixes as the view command; `<note-id>` is the numeric note id from the thread view; `<emoji>` is a GitLab emoji name with or without surrounding colons (`thumbsup` and `:thumbsup:` are equivalent).
+
+```
+reaction:
+  discussion_id: 6f9a1c2d
+  note_id: 901
+  emoji: thumbsup
+action: react
+help[2]:
+  Run `mr discussion 123 6f9a1c2d` for the full thread
+  Run `mr discussion unreact 123 6f9a1c2d 901 thumbsup` to remove the reaction
+```
+
+Verified no-ops keep exit 0 and include `noop: true`:
+
+```
+reaction:
+  discussion_id: 6f9a1c2d
+  note_id: 901
+  emoji: thumbsup
+action: unreact
+noop: true
+help[2]:
+  Run `mr discussion 123 6f9a1c2d` for the full thread
+  Run `mr discussion react 123 6f9a1c2d 901 thumbsup` to add the reaction back
+```
+
+- A note id from another thread fails loud with `note_not_in_discussion` (exit 1) and a hint listing the thread's real note ids — the guard runs before any award API call.
+- Duplicate react is verified against the note's award list before being reported as a no-op; an unknown emoji name stays a runtime error (`gitlab_not_found`) with a hint explaining GitLab's ambiguous 404.
+- Unreact lists first (the delete endpoint needs the award id) and only deletes your own award; nothing of yours to remove is a verified no-op without a delete call.
+- In axi mode, `reaction.discussion_id` is the 8-character prefix; JSON and standard `gl` output keep the full ID.
 
 ## Merge request diff
 

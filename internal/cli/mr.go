@@ -87,7 +87,7 @@ source branch is the currently checked out git branch.`,
 			case "discussions", "discussion", "threads":
 				return newUsageError(
 					fmt.Errorf("mr !%d %s runs as a subcommand", iid, action),
-					fmt.Sprintf("Run `mr discussions !%d` to list threads, `mr discussion !%d <id>` for one thread, or `mr discussion resolve !%d <id>` to resolve one", iid, iid, iid),
+					fmt.Sprintf("Run `mr discussions !%d` to list threads, `mr discussion !%d <id>` for one thread, `mr discussion resolve !%d <id>` to resolve one, or `mr discussion react !%d <id> <note-id> <emoji>` to react to a note", iid, iid, iid, iid),
 				)
 			case "comment":
 				return newUsageError(
@@ -101,7 +101,7 @@ source branch is the currently checked out git branch.`,
 				)
 			default:
 				return newUsageError(fmt.Errorf(
-					"%w %q for merge request !%d: supported actions: view (alias: info), approvals, approve (as `mr approve !<iid>`), unapprove (as `mr unapprove !<iid>`), merge (as `mr merge !<iid>`), close (as `mr close !<iid>`), reopen (as `mr reopen !<iid>`), diff, update (as `mr update !<iid>`), discussions (as `mr discussions !<iid>`), discussion resolve/unresolve (as `mr discussion resolve !<iid> <id>`), comment (as `mr comment !<iid>`), drafts (as `mr drafts !<iid>`)",
+					"%w %q for merge request !%d: supported actions: view (alias: info), approvals, approve (as `mr approve !<iid>`), unapprove (as `mr unapprove !<iid>`), merge (as `mr merge !<iid>`), close (as `mr close !<iid>`), reopen (as `mr reopen !<iid>`), diff, update (as `mr update !<iid>`), discussions (as `mr discussions !<iid>`), discussion resolve/unresolve (as `mr discussion resolve !<iid> <id>`), discussion react/unreact (as `mr discussion react !<iid> <id> <note-id> <emoji>`), comment (as `mr comment !<iid>`), drafts (as `mr drafts !<iid>`)",
 					errUnknownMergeRequestAction,
 					action,
 					iid,

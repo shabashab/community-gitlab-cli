@@ -19,14 +19,15 @@ var mrDiscussionListExtraFields = []string{"type", "file", "line", "created_at",
 var mrDiscussionListDefaultFields = []string{"id", "author", "state", "notes", "updated_at", "preview"}
 
 type mrDiscussionListOptions struct {
-	state   string
-	author  string
-	system  bool
-	orderBy string
-	sortDir string
-	limit   int64
-	page    int64
-	fields  []string
+	state     string
+	author    string
+	system    bool
+	orderBy   string
+	sortDir   string
+	limit     int64
+	page      int64
+	fields    []string
+	reactions bool
 }
 
 func newMRDiscussionListOptions() *mrDiscussionListOptions {
@@ -83,6 +84,7 @@ bang form ('!123') to avoid shell history expansion.`,
 	flags.StringVar(&opts.sortDir, "sort", opts.sortDir, "Sort direction: asc or desc")
 	flags.Int64Var(&opts.limit, "limit", opts.limit, "Threads per page, applied after filtering")
 	flags.Int64Var(&opts.page, "page", opts.page, "Page of the filtered result to show")
+	flags.BoolVar(&opts.reactions, "reactions", false, "Add a per-thread emoji reaction aggregate column (one extra API call per note on the page)")
 	flags.StringVar(
 		&fieldsFlag,
 		"fields",
@@ -105,7 +107,8 @@ as shown by "mr discussions". The literal reference "current" resolves to the
 open merge request of the currently checked out git branch.
 
 Use "mr discussion resolve" or "mr discussion unresolve" to change the
-resolution state of a resolvable thread.`,
+resolution state of a resolvable thread, and "mr discussion react" or
+"mr discussion unreact" to add or remove an emoji reaction on one note.`,
 		Args: wrapArgsValidator(cobra.ExactArgs(2)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			iid, err := resolveMergeRequestRef(cmd, rootOpts, projOpts, args[0])
@@ -119,6 +122,8 @@ resolution state of a resolvable thread.`,
 
 	cmd.AddCommand(newMRDiscussionResolveCommand(rootOpts, projOpts, "resolve", true))
 	cmd.AddCommand(newMRDiscussionResolveCommand(rootOpts, projOpts, "unresolve", false))
+	cmd.AddCommand(newMRDiscussionReactCommand(rootOpts, projOpts, "react", false))
+	cmd.AddCommand(newMRDiscussionReactCommand(rootOpts, projOpts, "unreact", true))
 
 	return cmd
 }
@@ -237,6 +242,23 @@ func runMRDiscussionList(cmd *cobra.Command, rootOpts *rootOptions, projOpts *pr
 	sortDiscussionSummaries(filtered, opts.orderBy, opts.sortDir)
 	rows, paging := pageDiscussionSummaries(filtered, opts.page, opts.limit)
 
+	// Reactions are fetched for the page rows only, bounding the per-note API
+	// cost; they are display data, not a filter, so totals are unaffected.
+	if opts.reactions {
+		ctx := commandContext(cmd)
+		for i := range rows {
+			var all []*gitlab.AwardEmoji
+			for _, noteID := range rows[i].NoteIDs {
+				awards, err := fetchAllNoteAwardEmoji(ctx, client, resolved.ref, iid, noteID)
+				if err != nil {
+					return err
+				}
+				all = append(all, awards...)
+			}
+			rows[i].Reactions = output.AggregateReactions(all)
+		}
+	}
+
 	hints := &output.DiscussionHintContext{
 		MRHintContext:  output.MRHintContext{Project: explicitProjectRef(projOpts), Limit: opts.limit},
 		IID:            iid,
@@ -248,7 +270,7 @@ func runMRDiscussionList(cmd *cobra.Command, rootOpts *rootOptions, projOpts *pr
 		ExcludedSystem: excludedSystem,
 	}
 
-	return output.WriteDiscussionList(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, rows, paging, opts.fields, hints)
+	return output.WriteDiscussionList(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, rows, paging, opts.fields, hints, opts.reactions)
 }
 
 func runMRDiscussionView(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOptions, iid int64, ref string) error {
@@ -262,12 +284,27 @@ func runMRDiscussionView(cmd *cobra.Command, rootOpts *rootOptions, projOpts *pr
 		return err
 	}
 
-	discussion, err := resolveDiscussionRef(commandContext(cmd), client, resolved.ref, iid, ref)
+	ctx := commandContext(cmd)
+	discussion, err := resolveDiscussionRef(ctx, client, resolved.ref, iid, ref)
 	if err != nil {
 		return err
 	}
 
-	return output.WriteDiscussion(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, discussion)
+	// The thread view is self-contained, so reactions are always fetched;
+	// threads are small and the per-note cost stays bounded.
+	reactions := map[int64][]*gitlab.AwardEmoji{}
+	for _, note := range discussion.Notes {
+		if note == nil {
+			continue
+		}
+		awards, err := fetchAllNoteAwardEmoji(ctx, client, resolved.ref, iid, note.ID)
+		if err != nil {
+			return err
+		}
+		reactions[note.ID] = awards
+	}
+
+	return output.WriteDiscussion(cmd.OutOrStdout(), rootOpts.output, rootOpts.mode, discussion, reactions)
 }
 
 func runMRDiscussionResolve(cmd *cobra.Command, rootOpts *rootOptions, projOpts *projectOptions, iid int64, ref, action string, desired bool) error {

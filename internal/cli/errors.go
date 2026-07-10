@@ -186,7 +186,7 @@ func classifyError(err error, bin string) (code, message string, help []string) 
 		}
 	case errors.Is(err, errUnknownMergeRequestAction):
 		return "unknown_merge_request_action", message, []string{
-			fmt.Sprintf("Supported actions: view (alias: info), approvals, approve, unapprove, merge, close, reopen, diff, update, discussions, discussion resolve/unresolve, comment, drafts — run `%s mr --help` for usage", bin),
+			fmt.Sprintf("Supported actions: view (alias: info), approvals, approve, unapprove, merge, close, reopen, diff, update, discussions, discussion resolve/unresolve/react/unreact, comment, drafts — run `%s mr --help` for usage", bin),
 		}
 	case errors.Is(err, errInvalidDiscussionRef):
 		return "invalid_discussion_ref", message, []string{
@@ -204,6 +204,18 @@ func classifyError(err error, bin string) (code, message string, help []string) 
 		return "discussion_not_resolvable", message, helpFromError(err,
 			fmt.Sprintf("Run `%s mr discussions !<iid> --state all` to find resolvable review threads", bin),
 		)
+	case errors.Is(err, errInvalidNoteID):
+		return "invalid_note_id", message, []string{
+			fmt.Sprintf("Note IDs are numeric — copy one from `%s mr discussion !<iid> <discussion-id>`", bin),
+		}
+	case errors.Is(err, errNoteNotInDiscussion):
+		return "note_not_in_discussion", message, helpFromError(err,
+			fmt.Sprintf("Run `%s mr discussion !<iid> <discussion-id>` to list the thread's notes and their ids", bin),
+		)
+	case errors.Is(err, errInvalidEmojiName):
+		return "invalid_emoji_name", message, []string{
+			"Pass a GitLab emoji name such as thumbsup, with or without surrounding colons (:thumbsup:)",
+		}
 	case errors.Is(err, errUserNotFound):
 		return "user_not_found", message, []string{
 			"Check the username spelling, or pass a numeric user ID to --assignee/--reviewer",

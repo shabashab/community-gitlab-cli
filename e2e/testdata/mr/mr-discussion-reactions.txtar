@@ -1,0 +1,75 @@
+# Note reactions: react adds an award emoji to a thread note (colon form
+# accepted), a duplicate react is a verified no-op, the thread view always
+# shows reactions, the list aggregates them behind --reactions, and unreact
+# removes the award with its own verified no-op.
+
+mkproject $SCRIPT_NAME-$RANDOM_STRING
+
+exec git init repo
+cd repo
+exec git remote add origin $GL_E2E_HOST/$PROJECT.git
+exec git commit --allow-empty -m init
+exec git push -u origin main
+exec git checkout -b feature
+exec git add change.txt
+exec git commit -m 'add change'
+exec git push -u origin feature
+
+retry gl-axi mr create --title 'E2E reactions'
+stdout2env IID 'iid: (\d+)'
+
+# a comment provides the note to react to
+exec gl-axi mr comment $IID --body 'React to me'
+stdout 'comment:'
+! stderr .
+stdout2env DISC 'discussion_id: "?([0-9a-f]{8})'
+stdout2env NOTE 'note_id: "?(\d+)'
+
+# react happy path; the colon form normalizes to the bare emoji name
+exec gl-axi mr discussion react $IID $DISC $NOTE :thumbsup:
+stdout 'action: react'
+stdout 'emoji: thumbsup'
+stdout 'note_id: "?'$NOTE
+! stdout 'noop'
+! stderr .
+
+# reacting again with the same emoji is a verified no-op
+exec gl-axi mr discussion react $IID $DISC $NOTE thumbsup
+stdout 'action: react'
+stdout 'noop: true'
+
+# the thread view always shows per-note reactions
+exec gl-axi mr discussion $IID $DISC
+stdout 'notes\[1\]\{id,author,created_at,updated_at,system,reactions,body\}:'
+stdout 'thumbsup:1'
+! stderr .
+
+# the list aggregates reactions only behind --reactions
+exec gl-axi mr discussions $IID --reactions
+stdout 'reactions'
+stdout 'thumbsup:1'
+exec gl-axi mr discussions $IID
+! stdout 'thumbsup'
+
+# unreact removes the award; a second unreact is a verified no-op
+exec gl-axi mr discussion unreact $IID $DISC $NOTE thumbsup
+stdout 'action: unreact'
+! stdout 'noop'
+exec gl-axi mr discussion unreact $IID $DISC $NOTE thumbsup
+stdout 'action: unreact'
+stdout 'noop: true'
+
+# a note id from another thread fails loud with the thread's real note ids
+exitcode 1 gl-axi mr discussion react $IID $DISC 999999999 thumbsup
+stdout 'code: note_not_in_discussion'
+
+# non-numeric note ids are usage errors
+exitcode 2 gl-axi mr discussion react $IID $DISC abc thumbsup
+stdout 'code: invalid_note_id'
+
+# malformed emoji names are usage errors before any API call
+exitcode 2 gl-axi mr discussion react $IID $DISC $NOTE 'th:umb'
+stdout 'code: invalid_emoji_name'
+
+-- repo/change.txt --
+e2e reactions fixture content

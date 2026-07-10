@@ -20,6 +20,7 @@ type axiDiscussionRow struct {
 	Notes     int     `json:"notes" toon:"notes"`
 	UpdatedAt string  `json:"updated_at" toon:"updated_at"`
 	Preview   string  `json:"preview" toon:"preview"`
+	Reactions *string `json:"reactions,omitempty" toon:"reactions,omitempty"`
 	Type      *string `json:"type,omitempty" toon:"type,omitempty"`
 	File      *string `json:"file,omitempty" toon:"file,omitempty"`
 	Line      *int64  `json:"line,omitempty" toon:"line,omitempty"`
@@ -50,6 +51,7 @@ type discussionRowOutput struct {
 	CreatedAt  string `json:"created_at"`
 	UpdatedAt  string `json:"updated_at"`
 	Preview    string `json:"preview"`
+	Reactions  string `json:"reactions,omitempty"`
 }
 
 type discussionListOutput struct {
@@ -81,6 +83,7 @@ type discussionNoteOutput struct {
 	CreatedAt string `json:"created_at" toon:"created_at"`
 	UpdatedAt string `json:"updated_at" toon:"updated_at"`
 	System    bool   `json:"system" toon:"system"`
+	Reactions string `json:"reactions" toon:"reactions"`
 	Body      string `json:"body" toon:"body"`
 }
 
@@ -143,11 +146,11 @@ func (c *DiscussionHintContext) filterSuffix() string {
 	return " " + strings.Join(parts, " ")
 }
 
-func WriteDiscussionList(w io.Writer, format string, mode Mode, summaries []DiscussionSummary, paging MRListPaging, fields []string, hints *DiscussionHintContext) error {
+func WriteDiscussionList(w io.Writer, format string, mode Mode, summaries []DiscussionSummary, paging MRListPaging, fields []string, hints *DiscussionHintContext, withReactions bool) error {
 	if mode == ModeAxi {
 		rows := make([]axiDiscussionRow, 0, len(summaries))
 		for _, summary := range summaries {
-			rows = append(rows, axiDiscussionRowFor(summary, fields))
+			rows = append(rows, axiDiscussionRowFor(summary, fields, withReactions))
 		}
 
 		return WriteAxi(w, format, axiDiscussionListOutput{
@@ -180,7 +183,7 @@ func WriteDiscussionList(w io.Writer, format string, mode Mode, summaries []Disc
 		})
 	}
 
-	return renderDiscussionTable(w, rows, paging)
+	return renderDiscussionTable(w, rows, paging, withReactions)
 }
 
 func discussionSummaryToRow(summary DiscussionSummary) discussionRowOutput {
@@ -196,10 +199,11 @@ func discussionSummaryToRow(summary DiscussionSummary) discussionRowOutput {
 		CreatedAt:  formatLocalTime(summary.CreatedAt),
 		UpdatedAt:  formatLocalTime(summary.UpdatedAt),
 		Preview:    summary.Preview,
+		Reactions:  summary.Reactions,
 	}
 }
 
-func axiDiscussionRowFor(summary DiscussionSummary, fields []string) axiDiscussionRow {
+func axiDiscussionRowFor(summary DiscussionSummary, fields []string, withReactions bool) axiDiscussionRow {
 	full := discussionSummaryToRow(summary)
 	row := axiDiscussionRow{
 		ID:        ShortDiscussionID(full.ID),
@@ -208,6 +212,10 @@ func axiDiscussionRowFor(summary DiscussionSummary, fields []string) axiDiscussi
 		Notes:     full.Notes,
 		UpdatedAt: full.UpdatedAt,
 		Preview:   full.Preview,
+	}
+	if withReactions {
+		// Set on every row so the TOON tabular schema stays uniform.
+		row.Reactions = &full.Reactions
 	}
 
 	for _, field := range fields {
@@ -276,7 +284,7 @@ func discussionListHelp(count int, paging MRListPaging, hints *DiscussionHintCon
 	return help
 }
 
-func WriteDiscussion(w io.Writer, format string, mode Mode, discussion *gitlab.Discussion) error {
+func WriteDiscussion(w io.Writer, format string, mode Mode, discussion *gitlab.Discussion, reactions map[int64][]*gitlab.AwardEmoji) error {
 	detail, err := discussionDetailFromDiscussion(discussion)
 	if err != nil {
 		return err
@@ -293,6 +301,7 @@ func WriteDiscussion(w io.Writer, format string, mode Mode, discussion *gitlab.D
 			CreatedAt: formatTimeValue(note.CreatedAt),
 			UpdatedAt: formatTimeValue(note.UpdatedAt),
 			System:    note.System,
+			Reactions: FormatNoteReactions(reactions[note.ID]),
 			Body:      note.Body,
 		})
 	}
@@ -426,7 +435,7 @@ func writeDiscussionText(w io.Writer, out discussionViewOutput) error {
 	}
 
 	for i, note := range out.Notes {
-		header := fmt.Sprintf("[%d] %s — %s", i+1, note.Author, note.CreatedAt)
+		header := fmt.Sprintf("[%d] #%d %s — %s", i+1, note.ID, note.Author, note.CreatedAt)
 		if note.UpdatedAt != "" && note.UpdatedAt != note.CreatedAt {
 			header += fmt.Sprintf(" (edited %s)", note.UpdatedAt)
 		}
@@ -435,6 +444,11 @@ func writeDiscussionText(w io.Writer, out discussionViewOutput) error {
 		}
 		if _, err := fmt.Fprintf(w, "\n%s\n%s\n", header, note.Body); err != nil {
 			return err
+		}
+		if note.Reactions != "" {
+			if _, err := fmt.Fprintf(w, "reactions: %s\n", note.Reactions); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -489,10 +503,14 @@ type DiscussionSummary struct {
 	Resolved   bool
 	System     bool
 	NotesCount int
+	NoteIDs    []int64
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 	ResolvedBy string
 	ResolvedAt *time.Time
+	// Reactions is the thread-level "name:count" aggregate; the cli layer
+	// fills it only when the list command runs with --reactions.
+	Reactions string
 }
 
 // SummarizeDiscussion computes the thread-level summary. ok is false for nil
@@ -516,6 +534,9 @@ func SummarizeDiscussion(discussion *gitlab.Discussion) (DiscussionSummary, bool
 		ID:         strings.ToLower(discussion.ID),
 		NotesCount: len(notes),
 		System:     true,
+	}
+	for _, note := range notes {
+		summary.NoteIDs = append(summary.NoteIDs, note.ID)
 	}
 
 	first := notes[0]

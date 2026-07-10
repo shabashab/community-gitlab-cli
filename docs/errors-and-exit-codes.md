@@ -43,12 +43,15 @@ Design rules:
 | ---- | ------- | ---- |
 | `usage_error` | invalid invocation not covered by a more specific code | 2 |
 | `invalid_merge_request_ref` | `mr` reference that is not `!<iid>` / `<iid>` / `current` | 2 |
-| `unknown_merge_request_action` | unsupported per-MR action (supported: `view` alias `info`, `approvals`, `approve`/`unapprove`, `merge`, `close`, `reopen`, `diff`, `update` as `mr update !<iid>`, `discussions` as `mr discussions !<iid>`, `discussion resolve/unresolve` as `mr discussion resolve !<iid> <id>`, `comment`, `drafts`) | 2 |
+| `unknown_merge_request_action` | unsupported per-MR action (supported: `view` alias `info`, `approvals`, `approve`/`unapprove`, `merge`, `close`, `reopen`, `diff`, `update` as `mr update !<iid>`, `discussions` as `mr discussions !<iid>`, `discussion resolve/unresolve` as `mr discussion resolve !<iid> <id>`, `discussion react/unreact` as `mr discussion react !<iid> <id> <note-id> <emoji>`, `comment`, `drafts`) | 2 |
 | `no_update_flags` | `mr update` with no field flags — nothing to change | 2 |
 | `invalid_discussion_ref` | discussion reference that is not a 40-character hex ID or a prefix of one | 2 |
 | `ambiguous_discussion_ref` | discussion ID prefix matching more than one thread (match count in the message) | 2 |
 | `discussion_not_found` | discussion ID prefix matching no thread on the merge request (a full 40-character ID that does not exist surfaces as `gitlab_not_found` instead — the API answers that lookup) | 1 |
 | `discussion_not_resolvable` | `mr discussion resolve`/`unresolve` targeting a non-resolvable thread such as system activity or a plain note | 1 |
+| `invalid_note_id` | `mr discussion react`/`unreact` note-id argument that is not a positive integer | 2 |
+| `invalid_emoji_name` | `mr discussion react`/`unreact` emoji argument that is empty or malformed after stripping surrounding colons (`:thumbsup:` and `thumbsup` are both accepted) | 2 |
+| `note_not_in_discussion` | `mr discussion react`/`unreact` note id that is not part of the addressed thread (hint lists the thread's real note ids) | 1 |
 | `invalid_draft_note_id` | `mr drafts publish`/`delete` draft-id argument that is not a positive integer | 2 |
 | `merge_request_diff_not_ready` | diff-backed commands while GitLab is still preparing the merge request diff (`diff_refs` empty — populates asynchronously after creation; retry shortly) | 1 |
 | `file_not_in_diff` | `mr diff --file`/`mr comment --file` path matching no file changed by the merge request (hint lists changed paths) | 1 |
@@ -107,6 +110,8 @@ The merge-request finalization commands apply this rule directly:
 - `mr merge` on an already merged merge request reports `noop: true` after reading the MR state.
 - `mr close` on an already closed merge request reports `noop: true`.
 - `mr reopen` on an already open merge request reports `noop: true`.
+- `mr discussion react` with an emoji you already awarded on the note reports `noop: true` — GitLab answers 404 for a duplicate award, so the CLI verifies by listing the note's reactions; a 404 for an unknown emoji name stays `gitlab_not_found` (that intent genuinely cannot be satisfied).
+- `mr discussion unreact` with no matching reaction of your own reports `noop: true` without issuing a delete.
 - `mr discussion resolve` on an already resolved thread, and `mr discussion unresolve` on an already unresolved thread, report `noop: true` after reading the thread.
 - Race-like merge failures are verified with a follow-up read; if the MR is now merged, the command reports the verified no-op/success instead of failing.
 
