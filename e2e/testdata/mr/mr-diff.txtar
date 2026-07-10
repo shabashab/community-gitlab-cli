@@ -1,0 +1,55 @@
+# Diff surface: compact changed-file summary, raw patch bytes, and the
+# filesystem review bundle with its non-empty-dir guard.
+
+mkproject $SCRIPT_NAME-$RANDOM_STRING
+
+exec git init repo
+cd repo
+exec git remote add origin $GL_E2E_HOST/$PROJECT.git
+exec git commit --allow-empty -m init
+exec git push -u origin main
+exec git checkout -b feature
+exec git add change.txt
+exec git commit -m 'add change'
+exec git push -u origin feature
+
+exec gl-axi mr create --title 'E2E diff'
+stdout2env IID 'iid: (\d+)'
+
+# changed-file summary: compact rows plus pinned diff refs
+exec gl-axi mr diff $IID
+stdout 'diff:'
+stdout 'base_sha: '
+stdout 'head_sha: '
+stdout 'files\[1\]\{path,status,additions,deletions,hunks\}:'
+stdout 'change.txt,added,3,0,1'
+stdout 'count: 1 of 1 total'
+! stderr .
+
+# raw patch bytes on stdout, bypassing structured output
+exec gl-axi mr diff patch $IID
+stdout 'diff --git'
+stdout '\+line two of the e2e fixture'
+! stderr .
+
+# review bundle export
+exec gl-axi mr diff export $IID --dir $WORK/bundle
+exists $WORK/bundle/manifest.toon
+exists $WORK/bundle/files.toon
+exists $WORK/bundle/patch.diff
+exists $WORK/bundle/diffs/change.txt.diff
+exists $WORK/bundle/new/change.txt
+
+# a non-empty target dir is refused without --force (usage error, exit 2)
+exitcode 2 gl-axi mr diff export $IID --dir $WORK/bundle
+stdout 'code: export_dir_not_empty'
+! stderr .
+
+# --force overwrites
+exec gl-axi mr diff export $IID --dir $WORK/bundle --force
+exists $WORK/bundle/manifest.toon
+
+-- repo/change.txt --
+line one of the e2e fixture
+line two of the e2e fixture
+line three of the e2e fixture

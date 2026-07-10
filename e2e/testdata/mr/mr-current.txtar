@@ -1,0 +1,37 @@
+# The literal ref `current` resolves through the checked-out branch to the
+# open merge request whose source branch matches.
+
+mkproject $SCRIPT_NAME-$RANDOM_STRING
+
+exec git init repo
+cd repo
+exec git remote add origin $GL_E2E_HOST/$PROJECT.git
+exec git commit --allow-empty -m init
+exec git push -u origin main
+exec git checkout -b feature
+exec git add change.txt
+exec git commit -m 'add change'
+exec git push -u origin feature
+
+exec gl-axi mr create --title 'E2E current ref'
+stdout2env IID 'iid: (\d+)'
+
+# mr current and mr view current resolve to the created merge request
+exec gl-axi mr current
+stdout 'iid: '$IID
+stdout 'source_branch: feature'
+! stderr .
+
+exec gl-axi mr view current
+stdout 'iid: '$IID
+! stderr .
+
+# from a branch with no open merge request the failure is loud and coded
+exec git checkout main
+exitcode 1 gl-axi mr current
+stdout 'code: no_current_merge_request'
+stdout 'help\['
+! stderr .
+
+-- repo/change.txt --
+e2e current-ref fixture content

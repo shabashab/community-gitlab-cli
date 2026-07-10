@@ -1,0 +1,76 @@
+# Full merge request lifecycle: create -> list -> view -> update ->
+# close -> close again (verified no-op) -> reopen -> merge.
+# Project, source branch, and target branch are all discovered from the
+# repo checkout - that discovery is itself contract under test.
+
+mkproject $SCRIPT_NAME-$RANDOM_STRING
+
+exec git init repo
+cd repo
+exec git remote add origin $GL_E2E_HOST/$PROJECT.git
+exec git commit --allow-empty -m init
+exec git push -u origin main
+exec git checkout -b feature
+exec git add change.txt
+exec git commit -m 'add change'
+exec git push -u origin feature
+
+# create: only --title is given; branches and project come from the checkout
+exec gl-axi mr create --title 'E2E lifecycle' --description 'created by e2e'
+stdout 'merge_request:'
+stdout 'title: E2E lifecycle'
+stdout 'state: opened'
+stdout 'source_branch: feature'
+stdout 'target_branch: main'
+stdout 'Run `mr view '
+! stderr .
+stdout2env IID 'iid: (\d+)'
+
+# list: fresh project, so the count is definitive
+exec gl-axi mr list
+stdout 'merge_requests\[1\]\{iid,title,state,author\}:'
+stdout 'count: 1 of 1 total'
+! stderr .
+
+# view: compact detail set with nested approval summary
+exec gl-axi mr view $IID
+stdout 'iid: '$IID
+stdout 'state: opened'
+stdout 'approval:'
+stdout 'user_has_approved: '
+! stderr .
+
+# update: only the passed field changes
+exec gl-axi mr update $IID --description 'updated by e2e'
+stdout 'merge_request:'
+stdout 'iid: '$IID
+! stderr .
+exec gl-axi mr view $IID
+stdout 'updated by e2e'
+
+# close, then close again: the second run is a verified no-op, still exit 0
+exec gl-axi mr close $IID
+stdout 'action: close'
+stdout 'state: closed'
+! stdout 'noop'
+exec gl-axi mr close $IID
+stdout 'action: close'
+stdout 'noop: true'
+
+# reopen
+exec gl-axi mr reopen $IID
+stdout 'action: reopen'
+stdout 'state: opened'
+
+# merge
+exec gl-axi mr merge $IID
+stdout 'action: merge'
+stdout 'state: merged'
+! stderr .
+
+# merging again is a verified no-op
+exec gl-axi mr merge $IID
+stdout 'noop: true'
+
+-- repo/change.txt --
+e2e lifecycle fixture content

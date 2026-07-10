@@ -1,0 +1,65 @@
+# Discussion thread flow: comment starts a resolvable thread, the list
+# shows it, the short-id prefix addresses it, resolve/unresolve mutate it,
+# and resolving twice is a verified no-op.
+
+mkproject $SCRIPT_NAME-$RANDOM_STRING
+
+exec git init repo
+cd repo
+exec git remote add origin $GL_E2E_HOST/$PROJECT.git
+exec git commit --allow-empty -m init
+exec git push -u origin main
+exec git checkout -b feature
+exec git add change.txt
+exec git commit -m 'add change'
+exec git push -u origin feature
+
+exec gl-axi mr create --title 'E2E discussions'
+stdout2env IID 'iid: (\d+)'
+
+# a default comment starts a resolvable discussion thread
+exec gl-axi mr comment $IID --body 'This needs a closer look'
+stdout 'comment:'
+stdout 'resolvable: true'
+! stderr .
+stdout2env DISC 'discussion_id: ([0-9a-f]{8})'
+
+# the thread shows up in the default (unresolved) list with an exact total
+exec gl-axi mr discussions $IID
+stdout 'discussions\[1\]\{id,author,state,notes,updated_at,preview\}:'
+stdout $DISC
+stdout 'unresolved'
+stdout 'count: 1 of 1 total'
+! stderr .
+
+# the single-thread view accepts the 8-char prefix and prints full bodies
+exec gl-axi mr discussion $IID $DISC
+stdout 'discussion:'
+stdout 'This needs a closer look'
+stdout 'notes\[1\]'
+! stderr .
+
+# resolve, then resolve again: the second run is a verified no-op
+exec gl-axi mr discussion resolve $IID $DISC
+stdout 'action: resolve'
+stdout 'state: resolved'
+! stdout 'noop'
+exec gl-axi mr discussion resolve $IID $DISC
+stdout 'action: resolve'
+stdout 'noop: true'
+
+# resolved threads leave the default unresolved list; the empty result is
+# explicit, not an error
+exec gl-axi mr discussions $IID
+stdout 'discussions\[0\]'
+stdout 'count: 0 of 0 total'
+
+# unresolve brings it back
+exec gl-axi mr discussion unresolve $IID $DISC
+stdout 'action: unresolve'
+stdout 'state: unresolved'
+exec gl-axi mr discussions $IID
+stdout 'count: 1 of 1 total'
+
+-- repo/change.txt --
+e2e discussions fixture content

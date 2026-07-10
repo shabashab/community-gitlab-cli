@@ -1,0 +1,67 @@
+# Positioned diff comments: the CLI resolves GitLab position objects from
+# the merge request diff, so a --file/--line comment must anchor as a real
+# DiffNote, and replies land in the same thread.
+
+mkproject $SCRIPT_NAME-$RANDOM_STRING
+
+exec git init repo
+cd repo
+exec git remote add origin $GL_E2E_HOST/$PROJECT.git
+exec git commit --allow-empty -m init
+exec git push -u origin main
+exec git checkout -b feature
+exec git add change.txt
+exec git commit -m 'add change'
+exec git push -u origin feature
+
+exec gl-axi mr create --title 'E2E positioned comments'
+stdout2env IID 'iid: (\d+)'
+
+# wait for GitLab to finish computing the diff before positioning
+exec gl-axi mr diff $IID
+stdout 'change.txt'
+
+# comment on an added line: must anchor as a DiffNote on that exact line
+exec gl-axi mr comment $IID --file change.txt --line 3 --body 'Inline note from e2e'
+stdout 'comment:'
+stdout 'type: DiffNote'
+stdout 'file: change.txt'
+stdout 'line: 3'
+! stderr .
+stdout2env DISC 'discussion_id: ([0-9a-f]{8})'
+
+# file-level comment: --file without --line
+exec gl-axi mr comment $IID --file change.txt --body 'File-level note from e2e'
+stdout 'comment:'
+stdout 'file: change.txt'
+! stderr .
+
+# reply to the positioned thread via its short-id prefix
+exec gl-axi mr comment $IID --reply-to $DISC --body 'Reply from e2e'
+stdout 'comment:'
+stdout 'discussion_id: '$DISC
+! stderr .
+
+# the thread now holds both notes
+exec gl-axi mr discussion $IID $DISC
+stdout 'Inline note from e2e'
+stdout 'Reply from e2e'
+stdout 'notes\[2\]'
+
+# a line outside the diff fails loud with the commentable ranges
+exitcode 1 gl-axi mr comment $IID --file change.txt --line 999 --body 'nope'
+stdout 'code: line_not_in_diff'
+stdout 'help\['
+! stderr .
+
+# a file outside the diff fails loud too
+exitcode 1 gl-axi mr comment $IID --file missing.txt --line 1 --body 'nope'
+stdout 'code: file_not_in_diff'
+! stderr .
+
+-- repo/change.txt --
+line one of the e2e fixture
+line two of the e2e fixture
+line three of the e2e fixture
+line four of the e2e fixture
+line five of the e2e fixture

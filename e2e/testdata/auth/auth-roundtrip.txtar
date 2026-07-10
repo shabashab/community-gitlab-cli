@@ -1,0 +1,37 @@
+# Credential store roundtrip: login -> status -> use stored token ->
+# logout -> logout again (verified no-op). GL_CREDSTORE=file is set by the
+# harness so everything lands in the encrypted file under the isolated HOME,
+# never in the real OS keychain.
+
+# login verifies the token against the instance and stores it per host
+exec gl-axi auth login $GL_E2E_TOKEN --gitlab-base-url $GL_E2E_HOST
+stdout 'login:'
+stdout 'backend: file'
+stdout 'username: '
+exists $HOME/.gl/credentials.json
+
+# status resolves the same host and sees the credential
+exec gl-axi auth status
+stdout 'status:'
+stdout 'authenticated: true'
+stdout 'backends\[1\]: file'
+
+# the stored credential is the last token source: commands work without env
+env GITLAB_TOKEN=
+env GL_TOKEN=
+exec gl whoami
+stdout 'username: '
+
+# logout removes it and reports the backend it came from
+exec gl-axi auth logout
+stdout 'logout:'
+stdout 'backends\[1\]: file'
+
+# logging out again is a verified no-op: exit 0, noop marker
+exec gl-axi auth logout
+stdout 'noop: true'
+
+# with the credential gone and no env token, commands fail loud
+exitcode 1 gl-axi whoami
+stdout 'code: missing_gitlab_token'
+! stderr .

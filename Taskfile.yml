@@ -21,6 +21,10 @@ tasks:
     desc: Run live E2E tests (needs GL_E2E_HOST, GL_E2E_TOKEN, GL_E2E_GROUP)
     cmds:
       - go test -tags e2e -count=1 -parallel 4 -timeout 20m ./e2e {{.CLI_ARGS}}
+  e2e:clean:
+    desc: Delete leaked gl-e2e-* projects older than 1h from the E2E group
+    cmds:
+      - go run ./e2e/janitor
   run:
     desc: Run the gl binary
     cmds:

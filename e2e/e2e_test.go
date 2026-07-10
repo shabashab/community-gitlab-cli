@@ -21,5 +21,8 @@ func TestMain(m *testing.M) {
 	})
 }
 
-func TestWhoami(t *testing.T) { testscript.Run(t, params(t, "whoami")) }
-func TestAxi(t *testing.T)    { testscript.Run(t, params(t, "axi")) }
+func TestWhoami(t *testing.T)  { testscript.Run(t, params(t, "whoami")) }
+func TestAuth(t *testing.T)    { testscript.Run(t, params(t, "auth")) }
+func TestProject(t *testing.T) { testscript.Run(t, params(t, "project")) }
+func TestMR(t *testing.T)      { testscript.Run(t, params(t, "mr")) }
+func TestAxi(t *testing.T)     { testscript.Run(t, params(t, "axi")) }
