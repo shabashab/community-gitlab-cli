@@ -1,0 +1,34 @@
+name: e2e
+
+# Live E2E suite against the GitLab instance named by the GL_E2E_HOST
+# repository variable. The canonical target is a private homelab instance,
+# so this runs on a self-hosted runner installed next to it; secrets stay on
+# that network. See docs/e2e-testing.md for provisioning.
+#
+# Manual dispatch only until the self-hosted runner exists — uncomment the
+# schedule block to enable the nightly run.
+
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: '0 3 * * *'
+
+jobs:
+  e2e:
+    runs-on: self-hosted
+    timeout-minutes: 30
+    env:
+      GL_E2E_HOST: ${{ vars.GL_E2E_HOST }}
+      GL_E2E_GROUP: ${{ vars.GL_E2E_GROUP }}
+      GL_E2E_TOKEN: ${{ secrets.GL_E2E_TOKEN }}
+      GL_E2E_TOKEN_ALT: ${{ secrets.GL_E2E_TOKEN_ALT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run E2E suite
+        run: go test -tags e2e -count=1 -parallel 4 -timeout 20m ./e2e
+      - name: Sweep leaked fixture projects
+        if: always()
+        run: go run ./e2e/janitor
