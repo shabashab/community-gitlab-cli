@@ -50,6 +50,9 @@ The project includes another binary named `gl-axi`. That binary is intended to b
 - `docs/axi-output.md`: detailed gl-axi output contract — per-command shapes, `--fields`, truncation, count lines, help-hint rules; update when changing axi output.
 - `docs/errors-and-exit-codes.md`: error model reference — structured error shape, error-code table, exit codes, API error translation; update when adding error codes.
 - `docs/agent-integrations.md`: session-integration reference — `setup hooks` per-app behavior, `context` command contract, Agent Skill; update when changing `internal/agenthooks` or the context output.
+- `docs/authentication.md`: user-facing authentication and configuration guide — token scopes and sources, credential storage, host resolution, project discovery, and output modes.
+- `docs/merge-requests.md`: user-facing merge request workflow guide — lifecycle commands, diffs, discussions, reactions, comments, and draft reviews; update when the `mr` command surface changes.
+- `docs/README.md`: documentation index separating user, agent, and contributor references.
 - `docs/e2e-testing.md`: E2E/UAT suite reference — instance provisioning, `GL_E2E_*` env vars, custom script commands, script-writing rules, UAT checklist; update when changing the `e2e/` harness or adding scripts.
 - `e2e/`: live-instance E2E suite (`//go:build e2e`) — testscript harness (`e2e_test.go`, `params.go`, `cmds.go`, `fixtures.go`), `.txtar` scenarios under `testdata/<family>/`, and `janitor/` (untagged) sweeping leaked `gl-e2e-*` fixture projects.
 - `internal/gitlabclient/config.go`: shared GitLab client-go configuration and client construction.
@@ -59,8 +62,10 @@ The project includes another binary named `gl-axi`. That binary is intended to b
 - `go.sum`: Go dependency checksums.
 - `Taskfile.yml`: project task definitions for building and running the CLI.
 - `bin/`: local build output directory. `task build` writes `bin/gl` and `bin/gl-axi` here.
+- `assets/gl-logo.png`: project logo used by the repository README.
 - `AGENTS.md`: agent-facing project documentation and workflow notes.
-- `README.md`: user-facing project overview and command reference.
+- `CONTRIBUTING.md`: contributor setup, validation, and pull request expectations.
+- `README.md`: user-facing product overview, source installation, and quick start.
 
 ## Task Commands
 
