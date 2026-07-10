@@ -152,6 +152,7 @@ Release verification = the whole suite green against the canonical instance. Cur
 | `mr` | mr-lifecycle | create/list/view/update/close/close-noop/reopen/merge/merge-noop |
 | `mr` | mr-current | `current` ref resolution, `no_current_merge_request` |
 | `mr` | mr-discussions | comment thread, short-id prefix, resolve/unresolve + no-op, state filter |
+| `mr` | mr-discussion-reactions | react/unreact + verified no-ops, colon-form emoji, several emoji on one note (separate awards, emoji-scoped unreact), view reactions column, `--reactions` aggregation, `note_not_in_discussion` / `invalid_note_id` / `invalid_emoji_name` |
 | `mr` | mr-comment-positioned | DiffNote positioning, file-level comment, reply-to, `line_not_in_diff`, `file_not_in_diff` |
 | `mr` | mr-diff | changed-file summary, raw patch, export bundle + `--force` guard |
 | `axi` | axi-error-contract | structured errors on stdout, exit 0/1/2, URL-leak check, gl stderr counterpart |

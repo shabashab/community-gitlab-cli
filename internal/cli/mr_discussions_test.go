@@ -35,6 +35,16 @@ func discussionJSON(id string, notes ...string) string {
 	return fmt.Sprintf(`{"id":%q,"individual_note":false,"notes":[%s]}`, id, strings.Join(notes, ","))
 }
 
+// noteAwardPath is the award-emoji collection path of one merge request note;
+// the thread view fetches it for every note.
+func noteAwardPath(noteID int64) string {
+	return fmt.Sprintf("/api/v4/projects/group%%2Fproject/merge_requests/123/notes/%d/award_emoji", noteID)
+}
+
+func awardJSON(id int64, name, username string, userID int64) string {
+	return fmt.Sprintf(`{"id":%d,"name":%q,"user":{"id":%d,"username":%q},"awardable_id":901,"awardable_type":"Note"}`, id, name, userID, username)
+}
+
 // discussionListStubJSON is the standard mixed fixture: two unresolved
 // threads, one resolved thread, and one system discussion.
 func discussionListStubJSON() string {
@@ -544,6 +554,10 @@ func TestMRDiscussionViewFullID(t *testing.T) {
 				),
 				discussionNoteJSON(902, "bob", "Done in a3f9c", true, true, false, "2026-07-01T09:00:00Z", "2026-07-01T09:00:00Z"),
 			))
+		case noteAwardPath(901):
+			fmt.Fprint(w, "["+awardJSON(55, "thumbsup", "alice", 7)+","+awardJSON(56, "thumbsup", "bob", 8)+"]")
+		case noteAwardPath(902):
+			fmt.Fprint(w, "[]")
 		default:
 			t.Errorf("unexpected request path %s (full-ID view must not hit the list endpoint)", r.URL.EscapedPath())
 			w.WriteHeader(http.StatusNotFound)
@@ -565,8 +579,11 @@ func TestMRDiscussionViewFullID(t *testing.T) {
 	if !strings.Contains(got, "file: internal/cli/mr.go") || !strings.Contains(got, "line: 42") {
 		t.Errorf("expected diff position, got:\n%s", got)
 	}
-	if !strings.Contains(got, "notes[2]{id,author,created_at,updated_at,system,body}:") {
+	if !strings.Contains(got, "notes[2]{id,author,created_at,updated_at,system,reactions,body}:") {
 		t.Errorf("expected tabular notes, got:\n%s", got)
+	}
+	if !strings.Contains(got, "thumbsup:2(alice,bob)") {
+		t.Errorf("expected the note's reaction summary, got:\n%s", got)
 	}
 	if !strings.Contains(got, `Please rename.\nShadows a builtin.`) {
 		t.Errorf("expected the full multi-line body, got:\n%s", got)
@@ -581,6 +598,8 @@ func TestMRDiscussionViewShortPrefix(t *testing.T) {
 		switch r.URL.EscapedPath() {
 		case discussionsListPath:
 			fmt.Fprint(w, discussionListStubJSON())
+		case noteAwardPath(901), noteAwardPath(902):
+			fmt.Fprint(w, "[]")
 		default:
 			t.Errorf("prefix resolution must use the list endpoint only, got %s", r.URL.EscapedPath())
 			w.WriteHeader(http.StatusInternalServerError)
@@ -883,7 +902,7 @@ func TestWriteDiscussionListStandardModes(t *testing.T) {
 
 	t.Run("text table", func(t *testing.T) {
 		var out bytes.Buffer
-		if err := output.WriteDiscussionList(&out, "text", commandModeStandard, summaries, paging, nil, nil); err != nil {
+		if err := output.WriteDiscussionList(&out, "text", commandModeStandard, summaries, paging, nil, nil, false); err != nil {
 			t.Fatalf("output.WriteDiscussionList returned error: %v", err)
 		}
 		got := out.String()
@@ -900,7 +919,7 @@ func TestWriteDiscussionListStandardModes(t *testing.T) {
 
 	t.Run("empty text table", func(t *testing.T) {
 		var out bytes.Buffer
-		if err := output.WriteDiscussionList(&out, "text", commandModeStandard, nil, output.MRListPaging{Page: 1}, nil, nil); err != nil {
+		if err := output.WriteDiscussionList(&out, "text", commandModeStandard, nil, output.MRListPaging{Page: 1}, nil, nil, false); err != nil {
 			t.Fatalf("output.WriteDiscussionList returned error: %v", err)
 		}
 		if !strings.Contains(out.String(), "No discussion threads found") {
@@ -910,7 +929,7 @@ func TestWriteDiscussionListStandardModes(t *testing.T) {
 
 	t.Run("json", func(t *testing.T) {
 		var out bytes.Buffer
-		if err := output.WriteDiscussionList(&out, "json", commandModeStandard, summaries, paging, nil, nil); err != nil {
+		if err := output.WriteDiscussionList(&out, "json", commandModeStandard, summaries, paging, nil, nil, false); err != nil {
 			t.Fatalf("output.WriteDiscussionList returned error: %v", err)
 		}
 		got := out.String()
@@ -980,6 +999,8 @@ func TestMRDiscussionsCurrentRef(t *testing.T) {
 				fmt.Fprint(w, "["+mergeRequestJSON(123, "short description")+"]")
 			case discussionsListPath:
 				fmt.Fprint(w, discussionListStubJSON())
+			case noteAwardPath(901), noteAwardPath(902):
+				fmt.Fprint(w, "[]")
 			default:
 				t.Errorf("unexpected request path %s", r.URL.EscapedPath())
 				w.WriteHeader(http.StatusNotFound)

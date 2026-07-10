@@ -284,6 +284,9 @@ gl mr discussions 123 --author @alice --fields file,line,id_full
 gl mr discussion 123 6f9a1c2d                        # full conversation of one thread
 gl mr discussion resolve 123 6f9a1c2d                # resolve a thread
 gl mr discussion unresolve current aa11bb22          # reopen a thread on the current MR
+gl mr discussion react 123 6f9a1c2d 901 thumbsup     # emoji reaction on a thread note
+gl mr discussion unreact 123 6f9a1c2d 901 :thumbsup: # remove your reaction (colon form ok)
+gl mr discussions 123 --reactions                    # per-thread reaction aggregate
 ```
 
 - `mr discussions <!iid|iid|current>` lists the discussion threads of a merge request. **Unresolved threads only by default** — pass `--state all|resolved` to widen. `--author` filters by the thread starter's username (optional `@`, case-insensitive); `--system` includes system-generated activity, which is hidden by default. Non-resolvable threads (standalone comments, system notes) have state `none` and match only `--state all`.
@@ -291,6 +294,8 @@ gl mr discussion unresolve current aa11bb22          # reopen a thread on the cu
 - Thread IDs are 40-character hex strings; lists show the 8-character prefix and every command accepts any unique prefix (ambiguous prefixes fail with the match count, exit 2). `gl-axi` rows are `id,author,state,notes,updated_at,preview` with `--fields type,file,line,created_at,id_full` extras; `gl` renders a table, `--output json` returns `{discussions, count, total, page, total_pages}` with full IDs.
 - `mr discussion <!iid|iid|current> <discussion-id>` prints one thread's full conversation — every note with its complete body, author, timestamps, and, for diff threads, the file and line the thread is anchored to.
 - `mr discussion resolve <!iid|iid|current> <discussion-id>` and `mr discussion unresolve <!iid|iid|current> <discussion-id>` toggle a resolvable thread through GitLab's discussion API. Already resolved/unresolved threads are verified no-ops (`noop: true`, exit 0); non-resolvable threads fail with `discussion_not_resolvable`.
+- `mr discussion react <!iid|iid|current> <discussion-id> <note-id> <emoji>` awards an emoji reaction to one note of a thread; `unreact` removes your own award. `<note-id>` is the numeric note id from the thread view; the emoji name works with or without surrounding colons. Reacting with an emoji you already awarded and removing one you never awarded are verified no-ops (`noop: true`, exit 0); a note id from another thread fails with `note_not_in_discussion` and the thread's real note ids.
+- The thread view always shows per-note reactions (compact `name:count(users)` groups); `mr discussions --reactions` adds an opt-in per-thread `name:count` aggregate column — opt-in because the notes API carries no award data, so it costs one extra API call per note on the page.
 
 ### Inspecting merge request diffs
 

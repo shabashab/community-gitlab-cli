@@ -138,7 +138,7 @@ func renderMRDiffTable(w io.Writer, rows []MRDiffFileOutput, paging MRListPaging
 	return err
 }
 
-func renderDiscussionTable(w io.Writer, rows []discussionRowOutput, paging MRListPaging) error {
+func renderDiscussionTable(w io.Writer, rows []discussionRowOutput, paging MRListPaging, withReactions bool) error {
 	if len(rows) == 0 {
 		_, err := fmt.Fprintln(w, "No discussion threads found. Try --state all, --system, or relax other filters.")
 		return err
@@ -150,21 +150,29 @@ func renderDiscussionTable(w io.Writer, rows []discussionRowOutput, paging MRLis
 	tw.SetColumnConfigs([]table.ColumnConfig{
 		{Name: "PREVIEW", WidthMax: 60},
 	})
-	tw.AppendHeader(table.Row{"ID", "AUTHOR", "STATE", "NOTES", "UPDATED", "PREVIEW"})
+	header := table.Row{"ID", "AUTHOR", "STATE", "NOTES", "UPDATED", "PREVIEW"}
+	if withReactions {
+		header = append(header, "REACTIONS")
+	}
+	tw.AppendHeader(header)
 
 	for _, row := range rows {
 		updated := row.UpdatedAt
 		if len(updated) >= 10 {
 			updated = updated[:10]
 		}
-		tw.AppendRow(table.Row{
+		cells := table.Row{
 			ShortDiscussionID(row.ID),
 			row.Author,
 			row.State,
 			row.Notes,
 			updated,
 			row.Preview,
-		})
+		}
+		if withReactions {
+			cells = append(cells, row.Reactions)
+		}
+		tw.AppendRow(cells)
 	}
 
 	tw.Render()

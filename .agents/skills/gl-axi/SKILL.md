@@ -62,6 +62,9 @@ gl-axi mr discussions current --order-by updated_at --sort desc
 gl-axi mr discussion 123 6f9a1c2d                  # full conversation of one thread
 gl-axi mr discussion resolve 123 6f9a1c2d          # resolve a thread
 gl-axi mr discussion unresolve current aa11bb22    # reopen a thread on the current MR
+gl-axi mr discussion react 123 6f9a1c2d 901 thumbsup   # emoji reaction on a thread note
+gl-axi mr discussion unreact 123 6f9a1c2d 901 thumbsup # remove your reaction
+gl-axi mr discussions 123 --reactions              # per-thread reaction aggregate
 gl-axi mr diff 123                                 # changed-file summary
 gl-axi mr diff 123 --file src/app.go --fields new_ranges,old_ranges
 gl-axi mr diff export 123 --dir .gl-axi/mr-123     # filesystem review bundle
@@ -104,7 +107,8 @@ gl-axi mr drafts publish 123 --all                 # publish the pending review
   and `mr reopen` change MR state. Already merged/closed/open states are
   verified no-ops (`noop: true`, exit 0).
 - The ref `current` (view, update, approvals, approve, unapprove, merge,
-  close, reopen, discussions, discussion, discussion resolve/unresolve)
+  close, reopen, discussions, discussion, discussion resolve/unresolve,
+  discussion react/unreact)
   resolves via the current git branch to its open MR.
   Open MRs only; zero or multiple matches fail loud (exit 1, codes
   `no_current_merge_request` /
@@ -124,6 +128,14 @@ gl-axi mr drafts publish 123 --all                 # publish the pending review
   toggle a resolvable thread. Already resolved/unresolved threads are verified
   no-ops (`noop: true`, exit 0); non-resolvable threads fail with
   `discussion_not_resolvable`.
+- `mr discussion react <iid> <id> <note-id> <emoji>` awards an emoji reaction
+  to one note; `unreact` removes your own. `<note-id>` comes from the thread
+  view's `id` column; the emoji name works bare or colon-wrapped
+  (`thumbsup` / `:thumbsup:`). Duplicate react and missing unreact are
+  verified no-ops (`noop: true`, exit 0); a note id from another thread fails
+  with `note_not_in_discussion` listing the real ids. The thread view always
+  shows per-note reactions (`name:count(users)`); `mr discussions
+  --reactions` adds an opt-in per-thread `name:count` column.
 - `mr diff <iid>` lists changed files as
   `path,status,additions,deletions,hunks`; `--fields` adds
   `old_path,generated,collapsed,too_large,new_ranges,old_ranges`.
