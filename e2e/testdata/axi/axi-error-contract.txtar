@@ -1,0 +1,30 @@
+# gl-axi structured errors: stdout channel, stable codes, distinct exit
+# codes, no leaked request URLs. The gl counterpart stays plain text on
+# stderr. Contract: docs/errors-and-exit-codes.md.
+
+# usage error: unknown flag -> exit 2, self-correcting flag list, stdout only
+exitcode 2 gl-axi mr list --bogus-flag
+stdout 'error: "unknown flag: --bogus-flag"'
+stdout 'code: usage_error'
+stdout 'Valid flags for `gl-axi mr list`'
+! stderr .
+
+# usage error: invalid merge request ref -> exit 2 before any API call
+exitcode 2 gl-axi mr not-a-ref --project $GL_E2E_GROUP/irrelevant
+stdout 'code: invalid_merge_request_ref'
+stdout 'help\['
+! stderr .
+
+# runtime error: nonexistent project -> exit 1, translated API error,
+# no request URL leaked into the message
+exitcode 1 gl-axi mr list --project $GL_E2E_GROUP/does-not-exist-$RANDOM_STRING
+stdout 'code: gitlab_not_found'
+stdout 'help\['
+! stdout 'api/v4'
+! stderr .
+
+# same runtime failure in gl standard mode: plain text on stderr, empty stdout
+exitcode 1 gl mr list --project $GL_E2E_GROUP/does-not-exist-$RANDOM_STRING
+! stdout .
+stderr 'not found'
+! stderr 'api/v4'
