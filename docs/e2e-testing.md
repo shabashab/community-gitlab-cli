@@ -122,6 +122,7 @@ Assert fragments, not whole documents — live output contains instance-specific
 - error contract: `exitcode 2 gl-axi ...` + `stdout 'code: <error_code>'` + `! stderr .`
 - no-ops: repeat the mutation, `stdout 'noop: true'` with exit 0
 - leak checks: `! stdout 'api/v4'`
+- TOON quotes strings that look like other types — an all-digit discussion id renders as `discussion_id: "42991560"` — so make id captures quote-tolerant: `stdout2env DISC 'discussion_id: "?([0-9a-f]{8})'`
 
 ## Cleanup
 

@@ -28,7 +28,7 @@ stdout 'type: DiffNote'
 stdout 'file: change.txt'
 stdout 'line: 3'
 ! stderr .
-stdout2env DISC 'discussion_id: ([0-9a-f]{8})'
+stdout2env DISC 'discussion_id: "?([0-9a-f]{8})'
 
 # file-level comment: --file without --line
 exec gl-axi mr comment $IID --file change.txt --body 'File-level note from e2e'
@@ -39,7 +39,7 @@ stdout 'file: change.txt'
 # reply to the positioned thread via its short-id prefix
 exec gl-axi mr comment $IID --reply-to $DISC --body 'Reply from e2e'
 stdout 'comment:'
-stdout 'discussion_id: '$DISC
+stdout 'discussion_id: "?'$DISC
 ! stderr .
 
 # the thread now holds both notes

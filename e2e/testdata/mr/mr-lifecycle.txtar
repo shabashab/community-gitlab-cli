@@ -63,7 +63,7 @@ stdout 'action: reopen'
 stdout 'state: opened'
 
 # merge
-exec gl-axi mr merge $IID
+retry gl-axi mr merge $IID
 stdout 'action: merge'
 stdout 'state: merged'
 ! stderr .

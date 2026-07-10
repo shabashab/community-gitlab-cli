@@ -22,7 +22,7 @@ exec gl-axi mr comment $IID --body 'This needs a closer look'
 stdout 'comment:'
 stdout 'resolvable: true'
 ! stderr .
-stdout2env DISC 'discussion_id: ([0-9a-f]{8})'
+stdout2env DISC 'discussion_id: "?([0-9a-f]{8})'
 
 # the thread shows up in the default (unresolved) list with an exact total
 exec gl-axi mr discussions $IID
