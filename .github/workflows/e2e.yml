@@ -1,14 +1,17 @@
 name: e2e
 
 # Live E2E suite on GitHub-hosted runners against the instance described
-# entirely by secrets in the `e2e` environment (the instance must be
-# reachable from the public internet). See docs/e2e-testing.md.
+# entirely by repository Actions secrets (the instance must be reachable
+# from the public internet). See docs/e2e-testing.md.
 #
 # Gating model:
-# - The `e2e` environment must have required reviewers configured in repo
-#   settings. Every run - including each pull_request run - then sits in
-#   "waiting" until an owner approves it, so nobody can spam the instance
-#   by opening pull requests.
+# - The job deliberately carries no `environment:` - a job that references
+#   an environment makes GitHub file every run as a deployment on the pull
+#   request.
+# - Runs from external contributors are gated by the repository Actions
+#   setting requiring owner approval for their workflow runs, so nobody
+#   can spam the instance by opening pull requests. Same-repo pull
+#   requests come from collaborators and run directly.
 # - Fork pull requests never receive secrets on the pull_request event
 #   (GitHub guarantee), so even an approved fork run just fails fast at
 #   the harness env gate without touching the instance.
@@ -40,7 +43,6 @@ permissions:
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    environment: e2e
     timeout-minutes: 30
     env:
       GL_E2E_HOST: ${{ secrets.GL_E2E_HOST }}
