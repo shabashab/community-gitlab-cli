@@ -1,25 +1,37 @@
 name: e2e
 
-# Live E2E suite against the GitLab instance named by the GL_E2E_HOST
-# repository variable. The canonical target is a private homelab instance,
-# so this runs on a self-hosted runner installed next to it; secrets stay on
-# that network. See docs/e2e-testing.md for provisioning.
+# Live E2E suite on GitHub-hosted runners against the instance described
+# entirely by repository secrets (the instance must be reachable from the
+# public internet). See docs/e2e-testing.md for provisioning.
 #
-# Manual dispatch only until the self-hosted runner exists — uncomment the
-# schedule block to enable the nightly run.
+# Fork safety: there is deliberately no pull_request trigger, so this
+# workflow never runs with fork code against the instance. Forks that
+# dispatch it run with their own (empty) secrets and fail fast at the
+# harness env gate. Do not add pull_request or pull_request_target here.
+#
+# The `e2e` environment holds the secrets; add protection rules (required
+# reviewers) in repo settings for an extra approval gate on manual runs.
 
 on:
   workflow_dispatch:
-  # schedule:
-  #   - cron: '0 3 * * *'
+  schedule:
+    - cron: '0 3 * * *'
+
+concurrency:
+  group: e2e-live-instance
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   e2e:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
+    environment: e2e
     timeout-minutes: 30
     env:
-      GL_E2E_HOST: ${{ vars.GL_E2E_HOST }}
-      GL_E2E_GROUP: ${{ vars.GL_E2E_GROUP }}
+      GL_E2E_HOST: ${{ secrets.GL_E2E_HOST }}
+      GL_E2E_GROUP: ${{ secrets.GL_E2E_GROUP }}
       GL_E2E_TOKEN: ${{ secrets.GL_E2E_TOKEN }}
       GL_E2E_TOKEN_ALT: ${{ secrets.GL_E2E_TOKEN_ALT }}
     steps:

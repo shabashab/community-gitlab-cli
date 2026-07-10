@@ -128,6 +128,15 @@ Assert fragments, not whole documents — live output contains instance-specific
 
 Three layers keep the instance clean: scripts' own deferred deletes, the auto-defer inside `mkproject`, and the janitor (`task e2e:clean` → `e2e/janitor`), which deletes group projects named `gl-e2e-*` older than one hour (`-max-age`, `-dry-run` to preview). Run the janitor after killing a run mid-flight; CI runs it as an always-on post-step.
 
+## CI
+
+`.github/workflows/e2e.yml` runs the suite nightly and on manual dispatch, on GitHub-hosted runners. The instance must be reachable from the public internet.
+
+- **Everything instance-related is a secret** (`GL_E2E_HOST`, `GL_E2E_GROUP`, `GL_E2E_TOKEN`, `GL_E2E_TOKEN_ALT`), stored in the `e2e` environment. Host and group are secrets, not variables, on purpose: this is a public repository, Actions logs are public, and testscript failure output echoes commands containing `$GL_E2E_HOST` — secret values are masked in logs, variables are not.
+- **Fork safety**: the workflow has no `pull_request` trigger, so fork code never runs against the instance with upstream secrets (GitHub never passes secrets to fork PRs anyway, and scheduled workflows are disabled in forks by default). A fork dispatching the workflow uses its own empty secrets and dies at the harness env gate. Never add `pull_request` or `pull_request_target` triggers to this file.
+- **Approval gate (optional)**: add required reviewers to the `e2e` environment in repo settings to make every run — including manual dispatches by collaborators — require explicit approval.
+- The janitor runs as an always-on post-step, so an aborted CI run cannot leave fixture projects behind for longer than the next run.
+
 ## UAT checklist
 
 Release verification = the whole suite green against the canonical instance. Current coverage by family:
