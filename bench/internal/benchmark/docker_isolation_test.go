@@ -31,7 +31,7 @@ func TestDockerIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	firstResult, firstRuntime := runFakeDockerTrial(t, runner, "first")
+	firstResult, firstRuntime := runFakeDockerTrial(t, runner, "first require-provider-env")
 	secondResult, secondRuntime := runFakeDockerTrial(t, runner, "second")
 	if firstRuntime.ContainerID == secondRuntime.ContainerID || firstRuntime.ContainerName == secondRuntime.ContainerName {
 		t.Fatalf("trials reused a container: first=%+v second=%+v", firstRuntime, secondRuntime)
@@ -107,6 +107,49 @@ func TestDockerIsolation(t *testing.T) {
 		}
 		assertNoContainer(t, runtime.ContainerName)
 	})
+
+	t.Run("retained container is sanitized", func(t *testing.T) {
+		workDir := writableFakeRepository(t)
+		keepRunner := *runner
+		keepRunner.KeepContainer = true
+		result, runtime, err := keepRunner.Run(context.Background(), fakeAgentConfig(workDir, "require-provider-env"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.FinalMessage == "" || !runtime.Cleanup.Retained || runtime.Cleanup.ContainerRemoved {
+			t.Fatalf("result=%+v runtime=%+v", result, runtime)
+		}
+		t.Cleanup(func() {
+			remove := exec.Command("docker", "rm", "--force", runtime.ContainerName)
+			if output, err := remove.CombinedOutput(); err != nil {
+				t.Errorf("remove retained container: %v: %s", err, output)
+			}
+		})
+
+		inspect := exec.Command("docker", "inspect", "--format", "{{json .Config.Env}}", runtime.ContainerName)
+		environment, err := inspect.CombinedOutput()
+		if err != nil {
+			t.Fatalf("inspect retained environment: %v: %s", err, environment)
+		}
+		for _, secret := range []string{"fake-account-token", "fake-gitlab-token"} {
+			if bytes.Contains(environment, []byte(secret)) {
+				t.Fatalf("retained environment leaked %q: %s", secret, environment)
+			}
+		}
+
+		inspectMount := exec.Command("docker", "inspect", "--format", `{{range .Mounts}}{{if eq .Destination "/run/secrets/benchmark.env"}}{{.Source}}{{end}}{{end}}`, runtime.ContainerName)
+		secretSource, err := inspectMount.CombinedOutput()
+		if err != nil {
+			t.Fatalf("inspect retained credential mount: %v: %s", err, secretSource)
+		}
+		path := strings.TrimSpace(string(secretSource))
+		if path == "" {
+			t.Fatal("retained container has no credential mount metadata")
+		}
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("credential source still exists after retained run: %s: %v", path, err)
+		}
+	})
 }
 
 func runFakeDockerTrial(t *testing.T, runner *DockerRunner, prompt string) (AgentResult, RuntimeMetadata) {
@@ -117,6 +160,12 @@ func runFakeDockerTrial(t *testing.T, runner *DockerRunner, prompt string) (Agen
 		t.Fatal(err)
 	}
 	assertNoContainer(t, runtime.ContainerName)
+	if err := os.RemoveAll(workDir); err != nil {
+		t.Fatalf("host could not remove container-created workspace content: %v", err)
+	}
+	if _, err := os.Stat(workDir); !os.IsNotExist(err) {
+		t.Fatalf("workspace still exists after host removal: %v", err)
+	}
 	return result, runtime
 }
 
@@ -131,10 +180,7 @@ func fakeAgentConfig(workDir, prompt string) AgentConfig {
 func writableFakeRepository(t *testing.T) string {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "repo")
-	if err := os.Mkdir(dir, 0o777); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(dir, 0o777); err != nil {
+	if err := os.Mkdir(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return dir

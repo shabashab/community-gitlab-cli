@@ -34,6 +34,7 @@ type RunManifest struct {
 	Docker               DockerRuntimeMetadata `json:"docker,omitempty"`
 	Image                ImageMetadata         `json:"image,omitempty"`
 	Resources            ResourceLimits        `json:"resources,omitempty"`
+	ContainerIdentity    *ContainerIdentity    `json:"container_identity,omitempty"`
 	StartedAt            time.Time             `json:"started_at"`
 	EndedAt              time.Time             `json:"ended_at,omitempty"`
 }
@@ -64,6 +65,8 @@ func newRunManifest(ctx context.Context, cfg Config, runID string, helper helper
 		manifest.Docker = dockerRunner.Docker
 		manifest.Image = dockerRunner.ImageMetadata
 		manifest.Resources = dockerRunner.Resources
+		identity := dockerRunner.Identity
+		manifest.ContainerIdentity = &identity
 	}
 	if source, err := providerAuthSource(cfg); err == nil {
 		manifest.ProviderAuthSource = strings.TrimPrefix(source, "source=")

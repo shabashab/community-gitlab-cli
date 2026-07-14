@@ -76,74 +76,78 @@ func Run(ctx context.Context, cfg Config) (Summary, error) {
 	if err := validateConfig(cfg); err != nil {
 		return Summary{}, err
 	}
+	secrets := benchmarkSecrets(cfg)
 	tasks, err := SelectTasks(cfg.TaskIDs)
 	if err != nil {
-		return Summary{}, err
+		return Summary{}, redactError(err, secrets)
 	}
 	helper, err := loadHelper(cfg)
 	if err != nil {
-		return Summary{}, err
+		return Summary{}, redactError(err, secrets)
 	}
 	runner, err := newAgentRunner(ctx, cfg)
 	if err != nil {
-		return Summary{}, err
+		return Summary{}, redactError(err, secrets)
 	}
 	toolVersion, err := runnerToolVersion(ctx, cfg, runner)
 	if err != nil {
-		return Summary{}, err
+		return Summary{}, redactError(err, secrets)
 	}
 
 	runID := time.Now().UTC().Format("20060102T150405.000000000Z") + "-" + cfg.Agent + "-" + cfg.Tool
 	runDir := filepath.Join(cfg.ResultsDir, runID)
 	if err := os.MkdirAll(runDir, 0o755); err != nil {
-		return Summary{}, fmt.Errorf("create benchmark result directory: %w", err)
+		return Summary{}, redactError(fmt.Errorf("create benchmark result directory: %w", err), secrets)
 	}
 	startedAt := time.Now().UTC()
 	manifest, err := newRunManifest(ctx, cfg, runID, helper, runner, startedAt)
 	if err != nil {
-		return Summary{}, err
+		return Summary{}, redactError(err, secrets)
 	}
 	if err := writeManifest(runDir, manifest); err != nil {
-		return Summary{}, fmt.Errorf("write benchmark manifest: %w", err)
+		return Summary{}, redactError(fmt.Errorf("write benchmark manifest: %w", err), secrets)
 	}
 	summary := newSummary(cfg, runID, runDir, startedAt)
 
 	resultsFile, err := os.OpenFile(filepath.Join(runDir, "trials.jsonl"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
-		return summary, finishFailedRun(runDir, &manifest, &summary, fmt.Errorf("open benchmark results: %w", err))
+		return summary, finishFailedRun(runDir, &manifest, &summary, secrets, fmt.Errorf("open benchmark results: %w", err))
 	}
 	defer resultsFile.Close()
 	encoder := json.NewEncoder(resultsFile)
 
 	for _, task := range tasks {
 		for trial := 1; trial <= cfg.Trials; trial++ {
-			result, trialErr := runTrial(ctx, cfg, runner, runID, runDir, toolVersion, helper, task, trial)
+			result, trialErr := runTrial(ctx, cfg, runner, runID, runDir, toolVersion, helper, task, trial, secrets)
 			if result.RunID != "" {
+				// Enforce redaction again at the serialization and terminal-output
+				// boundary in case a future caller mutates a diagnostic late.
+				redactTrialResult(&result, secrets)
 				if err := encoder.Encode(result); err != nil {
-					return summary, finishFailedRun(runDir, &manifest, &summary, fmt.Errorf("write benchmark trial result: %w", err))
+					return summary, finishFailedRun(runDir, &manifest, &summary, secrets, fmt.Errorf("write benchmark trial result: %w", err))
 				}
 				addResultToRun(cfg, &summary, result)
 			}
 			if trialErr != nil {
-				return summary, finishFailedRun(runDir, &manifest, &summary, trialErr)
+				return summary, finishFailedRun(runDir, &manifest, &summary, secrets, trialErr)
 			}
 			if result.RunID == "" {
-				return summary, finishFailedRun(runDir, &manifest, &summary, errors.New("trial completed without a result"))
+				return summary, finishFailedRun(runDir, &manifest, &summary, secrets, errors.New("trial completed without a result"))
 			}
 			if err := resultsFile.Sync(); err != nil {
-				return summary, finishFailedRun(runDir, &manifest, &summary, fmt.Errorf("sync benchmark trial result: %w", err))
+				return summary, finishFailedRun(runDir, &manifest, &summary, secrets, fmt.Errorf("sync benchmark trial result: %w", err))
 			}
 		}
 	}
 	summary.EndedAt = time.Now().UTC()
 	summary.WallDurationMS = summary.EndedAt.Sub(summary.StartedAt).Milliseconds()
 	if err := writeSummary(runDir, summary); err != nil {
-		return summary, finishFailedRun(runDir, &manifest, &summary, err)
+		return summary, finishFailedRun(runDir, &manifest, &summary, secrets, err)
 	}
 	manifest.Status = "complete"
 	manifest.EndedAt = summary.EndedAt
 	if err := writeManifest(runDir, manifest); err != nil {
-		return summary, fmt.Errorf("finalize benchmark manifest: %w", err)
+		return summary, redactError(fmt.Errorf("finalize benchmark manifest: %w", err), secrets)
 	}
 	return summary, nil
 }
@@ -166,7 +170,8 @@ func addResultToRun(cfg Config, summary *Summary, result TrialResult) {
 	)
 }
 
-func finishFailedRun(runDir string, manifest *RunManifest, summary *Summary, runErr error) error {
+func finishFailedRun(runDir string, manifest *RunManifest, summary *Summary, secrets []string, runErr error) error {
+	runErr = redactError(runErr, secrets)
 	endedAt := time.Now().UTC()
 	summary.EndedAt = endedAt
 	summary.WallDurationMS = endedAt.Sub(summary.StartedAt).Milliseconds()
@@ -188,6 +193,7 @@ func runTrial(
 	helper helperMaterial,
 	task Task,
 	trial int,
+	secrets []string,
 ) (TrialResult, error) {
 	tempRoot := filepath.Join(os.TempDir(), "community-gitlab-cli-bench")
 	if err := os.MkdirAll(tempRoot, 0o700); err != nil {
@@ -216,13 +222,6 @@ func runTrial(
 		workspaceCleaned = true
 		return TrialResult{}, fmt.Errorf("provision task %s trial %d: %w", task.ID, trial, err)
 	}
-	if err := makeWorkspaceAccessible(fixture.RepoDir); err != nil {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		_ = fixture.Cleanup(cleanupCtx)
-		cancel()
-		return TrialResult{}, fmt.Errorf("prepare writable trial workspace: %w", err)
-	}
-
 	prompt := BuildPrompt(cfg.Tool, task, fixture, helper.Content)
 	promptSum := sha256.Sum256([]byte(prompt))
 	started := time.Now().UTC()
@@ -244,7 +243,7 @@ func runTrial(
 		Project:  fixture.Project.PathWithNamespace,
 	})
 	cancel()
-	redactAgentResult(&agentResult, benchmarkSecrets(cfg))
+	redactAgentResult(&agentResult, secrets)
 
 	traceName := fmt.Sprintf("%s-trial-%02d.jsonl", task.ID, trial)
 	stderrName := fmt.Sprintf("%s-trial-%02d.stderr", task.ID, trial)
@@ -311,7 +310,7 @@ func runTrial(
 	if cfg.KeepContainer && result.Runtime.ContainerID != "" {
 		retainWorkspace = true
 		result.Runtime.Cleanup.Retained = true
-		fmt.Fprintf(cfg.Out, "RETAIN container=%s workspace=%s\n", result.Runtime.ContainerName, workDir)
+		fmt.Fprintf(cfg.Out, "RETAIN container=%s workspace=%s credentials_removed=true restartable=false\n", result.Runtime.ContainerName, workDir)
 	} else if err := os.RemoveAll(workDir); err != nil {
 		result.Runtime.Cleanup.Error = err.Error()
 		if infrastructureErr == nil {
@@ -325,29 +324,8 @@ func runTrial(
 	if isInfrastructureError(agentErr) && infrastructureErr == nil {
 		infrastructureErr = agentErr
 	}
-	return result, infrastructureErr
-}
-
-func makeWorkspaceAccessible(root string) error {
-	return filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return nil
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		mode := info.Mode().Perm()
-		if entry.IsDir() {
-			return os.Chmod(path, mode|0o077)
-		}
-		// Preserve executable bits and other tracked mode information while
-		// allowing the fixed, unprivileged container UID to edit the clone.
-		return os.Chmod(path, mode|0o066)
-	})
+	redactTrialResult(&result, secrets)
+	return result, redactError(infrastructureErr, secrets)
 }
 
 func withConfigDefaults(cfg Config) Config {
@@ -533,8 +511,11 @@ func Preflight(ctx context.Context, cfg Config) []PreflightCheck {
 			configurationOK = false
 		}
 	}
+	if !configurationOK {
+		return checks
+	}
 	commands := []string{"git"}
-	if cfg.Isolation == IsolationDocker && configurationOK {
+	if cfg.Isolation == IsolationDocker {
 		commands = append(commands, "docker")
 	} else {
 		commands = append(commands, cfg.Agent, cfg.Tool)
@@ -632,19 +613,22 @@ func dockerAdapterPreflight(ctx context.Context, cfg Config, runner *DockerRunne
 		return err
 	}
 	defer os.RemoveAll(dir)
-	envPath, err := writeContainerEnv(dir, AgentConfig{Host: cfg.Host, Token: cfg.Token}, cfg.Agent, cfg.CodexAuthFile)
+	secretPath, err := writeContainerSecrets(dir, AgentConfig{Host: cfg.Host, Token: cfg.Token}, cfg.Agent, cfg.CodexAuthFile, false)
 	if err != nil {
 		return err
 	}
-	defer os.Remove(envPath)
+	defer os.Remove(secretPath)
+	envArgs, err := containerEnvironmentArgs(AgentConfig{Host: cfg.Host})
+	if err != nil {
+		return err
+	}
 	args := []string{
 		"run", "--rm",
-		"--user", "10001:10001",
-		"--tmpfs", "/home/bench:rw,size=256m,uid=10001,gid=10001,mode=0700",
-		"--env-file", envPath,
 		"--network", defaultContainerResources.NetworkMode,
-		runner.Image,
 	}
+	args = append(args, containerIdentityArgs(runner.Identity, "256m")...)
+	args = append(args, envArgs...)
+	args = append(args, "--mount", "type=bind,src="+secretPath+",dst="+containerSecretPath+",readonly", runner.Image)
 	switch cfg.Tool {
 	case "gl", "gl-axi":
 		args = append(args, cfg.Tool, "--output", "json", "whoami")

@@ -9,7 +9,18 @@ case "$prompt" in
       exit 12
     fi
     ;;
+  *require-provider-env*)
+    if [ "${CODEX_ACCESS_TOKEN:-}" != "fake-account-token" ]; then
+      printf 'provider credential was not staged\n' >&2
+      exit 13
+    fi
+    ;;
 esac
+
+if [ "${GITLAB_TOKEN:-}" != "fake-gitlab-token" ]; then
+  printf 'GitLab credential was not staged\n' >&2
+  exit 14
+fi
 
 case "$prompt" in
   *timeout*)
@@ -39,6 +50,8 @@ fi
 
 printf 'home-marker\n' > "$HOME/trial-marker"
 printf 'workspace-marker\n' > /workspace/trial-marker
+mkdir -m 0700 /workspace/container-private
+printf 'private\n' > /workspace/container-private/value
 printf 'fake stderr\n' >&2
 printf '%s\n' '{"type":"item.completed","item":{"type":"command_execution","command":"gl-axi mr list"}}'
 printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"benchmark fake complete"}}'

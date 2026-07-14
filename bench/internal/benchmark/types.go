@@ -58,6 +58,13 @@ type ResourceLimits struct {
 	NetworkMode string  `json:"network_mode"`
 }
 
+// ContainerIdentity is the numeric host identity used by a Docker trial so
+// files created through the workspace bind mount remain host-removable.
+type ContainerIdentity struct {
+	UID int `json:"uid"`
+	GID int `json:"gid"`
+}
+
 // CleanupMetadata records whether disposable trial resources were removed.
 type CleanupMetadata struct {
 	ContainerRemoved bool   `json:"container_removed,omitempty"`
@@ -93,6 +100,7 @@ type ImageMetadata struct {
 // inspection data so a trial can be explained without leaking credentials.
 type RuntimeMetadata struct {
 	Isolation          string                `json:"isolation"`
+	ContainerIdentity  *ContainerIdentity    `json:"container_identity,omitempty"`
 	Docker             DockerRuntimeMetadata `json:"docker,omitempty"`
 	Image              ImageMetadata         `json:"image,omitempty"`
 	ContainerID        string                `json:"container_id,omitempty"`

@@ -3,6 +3,7 @@ package benchmark
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"sort"
 	"strings"
@@ -65,12 +66,53 @@ func collectSensitiveJSONValues(value any, sensitive bool, values *[]string) {
 }
 
 func redactAgentResult(result *AgentResult, secrets []string) {
+	result.RawEvents = redactBytes(result.RawEvents, secrets)
+	result.RawStderr = redactBytes(result.RawStderr, secrets)
+	result.FinalMessage = redactString(result.FinalMessage, secrets)
+	result.PolicyViolation = redactString(result.PolicyViolation, secrets)
+	redactStrings(result.Commands, secrets)
+}
+
+func redactTrialResult(result *TrialResult, secrets []string) {
+	result.FinalMessage = redactString(result.FinalMessage, secrets)
+	result.PolicyViolation = redactString(result.PolicyViolation, secrets)
+	result.Error = redactString(result.Error, secrets)
+	result.Runtime.Cleanup.Error = redactString(result.Runtime.Cleanup.Error, secrets)
+	redactStrings(result.Commands, secrets)
+	redactStrings(result.Grade.Assertions, secrets)
+	redactStrings(result.Grade.Failures, secrets)
+}
+
+func redactError(err error, secrets []string) error {
+	if err == nil {
+		return nil
+	}
+	message := redactString(err.Error(), secrets)
+	if message == err.Error() {
+		return err
+	}
+	if isInfrastructureError(err) {
+		return newInfrastructureError("%s", message)
+	}
+	return errors.New(message)
+}
+
+func redactBytes(value []byte, secrets []string) []byte {
 	for _, secret := range secrets {
-		result.RawEvents = bytes.ReplaceAll(result.RawEvents, []byte(secret), []byte(redactedValue))
-		result.RawStderr = bytes.ReplaceAll(result.RawStderr, []byte(secret), []byte(redactedValue))
-		result.FinalMessage = strings.ReplaceAll(result.FinalMessage, secret, redactedValue)
-		for i := range result.Commands {
-			result.Commands[i] = strings.ReplaceAll(result.Commands[i], secret, redactedValue)
-		}
+		value = bytes.ReplaceAll(value, []byte(secret), []byte(redactedValue))
+	}
+	return value
+}
+
+func redactString(value string, secrets []string) string {
+	for _, secret := range secrets {
+		value = strings.ReplaceAll(value, secret, redactedValue)
+	}
+	return value
+}
+
+func redactStrings(values []string, secrets []string) {
+	for i := range values {
+		values[i] = redactString(values[i], secrets)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -43,9 +44,18 @@ func TestDockerRunnerCapturesEventsAndRemovesContainer(t *testing.T) {
 	started := time.Now().UTC().Add(-time.Second)
 	finished := started.Add(500 * time.Millisecond)
 	cli := &fakeDockerCLI{}
+	var stagedSecretPath string
 	cli.runFunc = func(_ context.Context, _ io.Reader, stdout, stderr io.Writer, args []string) error {
 		switch args[0] {
 		case "create":
+			stagedSecretPath = mountedSource(args, containerSecretPath)
+			data, err := os.ReadFile(stagedSecretPath)
+			if err != nil {
+				t.Fatalf("read staged credential: %v", err)
+			}
+			if !bytes.Contains(data, []byte("gitlab-secret")) || !bytes.Contains(data, []byte("account-token-not-for-metadata")) {
+				t.Fatalf("staged credential is incomplete: %s", data)
+			}
 			io.WriteString(stdout, "container-id\n")
 		case "start":
 			io.WriteString(stdout, `{"type":"item.completed","item":{"type":"agent_message","text":"done"}}`+"\n")
@@ -72,6 +82,7 @@ func TestDockerRunnerCapturesEventsAndRemovesContainer(t *testing.T) {
 	runner := &DockerRunner{
 		CLI: cli, Image: "bench:test", Agent: AgentCodex, Tool: "gl-axi",
 		Resources:     defaultContainerResources,
+		Identity:      ContainerIdentity{UID: 501, GID: 20},
 		ImageMetadata: ImageMetadata{Ref: "bench:test", ID: "image-id", AgentVersion: "test", AdapterSHA256: "abc"},
 	}
 	result, runtime, err := runner.Run(context.Background(), AgentConfig{
@@ -95,19 +106,25 @@ func TestDockerRunnerCapturesEventsAndRemovesContainer(t *testing.T) {
 	if bytes.Contains(encoded, []byte("account-token")) || bytes.Contains(encoded, []byte("gitlab-secret")) {
 		t.Fatalf("runtime leaked a credential: %s", encoded)
 	}
+	if _, err := os.Stat(stagedSecretPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("staged credential still exists after trial: %v", err)
+	}
 
 	joined := make([]string, 0, len(cli.runs))
 	for _, call := range cli.runs {
 		joined = append(joined, strings.Join(call, " "))
 	}
 	all := strings.Join(joined, "\n")
-	for _, want := range []string{"create --name gl-bench-", "--memory 2g", "--cpus 2", "--pids-limit 256", "--dangerously-bypass-approvals-and-sandbox", "start --attach --interactive", "rm --force"} {
+	for _, want := range []string{"create --name gl-bench-", "--memory 2g", "--cpus 2", "--pids-limit 256", "--user 501:20", "uid=501,gid=20", "dst=" + containerSecretPath + ",readonly", "--dangerously-bypass-approvals-and-sandbox", "start --attach --interactive", "rm --force"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("Docker calls do not contain %q:\n%s", want, all)
 		}
 	}
 	if strings.Contains(all, "--sandbox workspace-write") {
 		t.Fatalf("Docker Codex command attempted nested sandboxing:\n%s", all)
+	}
+	if strings.Contains(all, "--env-file") {
+		t.Fatalf("Docker create persisted credentials through --env-file:\n%s", all)
 	}
 	if strings.Contains(all, "gitlab-secret") || strings.Contains(all, "account-token") {
 		t.Fatalf("Docker argv leaked a credential:\n%s", all)
@@ -141,7 +158,10 @@ func TestDockerRunnerTimeoutKillsInspectsAndRemoves(t *testing.T) {
 	if err := os.Mkdir(workDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	runner := &DockerRunner{CLI: cli, Image: "bench:test", Agent: AgentCodex, Tool: "gl-axi", Resources: defaultContainerResources}
+	runner := &DockerRunner{
+		CLI: cli, Image: "bench:test", Agent: AgentCodex, Tool: "gl-axi",
+		Resources: defaultContainerResources, Identity: ContainerIdentity{UID: 501, GID: 20},
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
 	_, runtime, err := runner.Run(ctx, AgentConfig{
@@ -193,12 +213,12 @@ func TestPreparedCredentialFilesUseScopedPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if authInfo.Mode().Perm() != 0o444 {
+	if authInfo.Mode().Perm() != 0o600 {
 		t.Fatalf("auth mode = %o", authInfo.Mode().Perm())
 	}
 
 	t.Setenv("CODEX_ACCESS_TOKEN", "account")
-	envPath, err := writeContainerEnv(dir, AgentConfig{Host: "https://gitlab.example", Token: "gitlab"}, AgentCodex, source)
+	envPath, err := writeContainerSecrets(dir, AgentConfig{Host: "https://gitlab.example", Token: "gitlab"}, AgentCodex, source, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,6 +230,86 @@ func TestPreparedCredentialFilesUseScopedPermissions(t *testing.T) {
 	if envInfo.Mode().Perm() != 0o600 {
 		t.Fatalf("env mode = %o", envInfo.Mode().Perm())
 	}
+}
+
+func TestContainerEnvironmentNeverContainsCredentials(t *testing.T) {
+	args, err := containerEnvironmentArgs(AgentConfig{
+		Host: "https://gitlab.example", Token: "gitlab-secret",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "gitlab-secret") || strings.Contains(joined, "GITLAB_TOKEN") {
+		t.Fatalf("non-secret environment contains a credential: %s", joined)
+	}
+}
+
+func TestDockerAdapterPreflightUsesSharedIdentityAndSecretMount(t *testing.T) {
+	const gitLabSecret = "adapter-gitlab-secret"
+	cli := &fakeDockerCLI{}
+	var stagedPath string
+	cli.runFunc = func(_ context.Context, _ io.Reader, _ io.Writer, _ io.Writer, args []string) error {
+		stagedPath = mountedSource(args, containerSecretPath)
+		data, err := os.ReadFile(stagedPath)
+		if err != nil {
+			t.Fatalf("read adapter credential: %v", err)
+		}
+		if !bytes.Contains(data, []byte(gitLabSecret)) {
+			t.Fatalf("adapter credential was not staged: %s", data)
+		}
+		joined := strings.Join(args, " ")
+		for _, want := range []string{"--user 501:20", "uid=501,gid=20", "dst=" + containerSecretPath + ",readonly"} {
+			if !strings.Contains(joined, want) {
+				t.Errorf("adapter preflight does not contain %q: %s", want, joined)
+			}
+		}
+		if strings.Contains(joined, "--env-file") || strings.Contains(joined, gitLabSecret) {
+			t.Fatalf("adapter preflight persisted a credential: %s", joined)
+		}
+		return nil
+	}
+	runner := &DockerRunner{
+		CLI: cli, Image: "bench:test", Identity: ContainerIdentity{UID: 501, GID: 20},
+	}
+	err := dockerAdapterPreflight(context.Background(), Config{
+		Agent: AgentCodex, Tool: "gl-axi", Host: "https://gitlab.example", Token: gitLabSecret,
+	}, runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stagedPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("adapter credential still exists after preflight: %v", err)
+	}
+}
+
+func TestParseContainerIdentityRequiresNonRootPOSIXUser(t *testing.T) {
+	identity, err := parseContainerIdentity(&user.User{Uid: "1000", Gid: "100"})
+	if err != nil || identity != (ContainerIdentity{UID: 1000, GID: 100}) {
+		t.Fatalf("identity=%+v err=%v", identity, err)
+	}
+	for _, current := range []*user.User{
+		{Uid: "0", Gid: "0"},
+		{Uid: "S-1-5-21", Gid: "S-1-5-32"},
+	} {
+		if _, err := parseContainerIdentity(current); err == nil {
+			t.Fatalf("identity %+v unexpectedly passed", current)
+		}
+	}
+}
+
+func mountedSource(args []string, destination string) string {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] != "--mount" || !strings.Contains(args[i+1], "dst="+destination) {
+			continue
+		}
+		for _, part := range strings.Split(args[i+1], ",") {
+			if strings.HasPrefix(part, "src=") {
+				return strings.TrimPrefix(part, "src=")
+			}
+		}
+	}
+	return ""
 }
 
 func TestInspectContainerStateParsesNarrowState(t *testing.T) {

@@ -11,7 +11,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +25,8 @@ const (
 
 	DefaultCodexImage  = "community-gitlab-cli-bench-codex:local"
 	DefaultClaudeImage = "community-gitlab-cli-bench-claude:local"
+
+	containerSecretPath = "/run/secrets/benchmark.env"
 )
 
 func DefaultCodexAuthFile() string {
@@ -93,12 +97,17 @@ type DockerRunner struct {
 	CodexAuthFile string
 	KeepContainer bool
 	Resources     ResourceLimits
+	Identity      ContainerIdentity
 	Docker        DockerRuntimeMetadata
 	ImageMetadata ImageMetadata
 }
 
 func NewDockerRunner(ctx context.Context, cfg Config) (*DockerRunner, error) {
 	cli := DockerCLI(execDockerCLI{})
+	identity, err := hostContainerIdentity()
+	if err != nil {
+		return nil, newInfrastructureError("resolve non-root container identity: %w", err)
+	}
 	image := cfg.CodexImage
 	if cfg.Agent == AgentClaude {
 		image = cfg.ClaudeImage
@@ -122,6 +131,7 @@ func NewDockerRunner(ctx context.Context, cfg Config) (*DockerRunner, error) {
 		CodexAuthFile: cfg.CodexAuthFile,
 		KeepContainer: cfg.KeepContainer,
 		Resources:     defaultContainerResources,
+		Identity:      identity,
 		Docker:        dockerMetadata,
 		ImageMetadata: imageMetadata,
 	}, nil
@@ -135,10 +145,14 @@ func (r *DockerRunner) Run(ctx context.Context, cfg AgentConfig) (AgentResult, R
 		r.Resources = defaultContainerResources
 	}
 	runtime := RuntimeMetadata{
-		Isolation: IsolationDocker,
-		Docker:    r.Docker,
-		Image:     r.ImageMetadata,
-		Resources: r.Resources,
+		Isolation:         IsolationDocker,
+		ContainerIdentity: &r.Identity,
+		Docker:            r.Docker,
+		Image:             r.ImageMetadata,
+		Resources:         r.Resources,
+	}
+	if err := validateContainerIdentity(r.Identity); err != nil {
+		return AgentResult{}, runtime, newInfrastructureError("resolve non-root container identity: %w", err)
 	}
 
 	workDir, err := filepath.Abs(cfg.WorkDir)
@@ -156,11 +170,11 @@ func (r *DockerRunner) Run(ctx context.Context, cfg AgentConfig) (AgentResult, R
 	runtime.ContainerName = name
 
 	trialDir := filepath.Dir(workDir)
-	envPath, err := writeContainerEnv(trialDir, cfg, r.Agent, r.CodexAuthFile)
+	secretPath, err := writeContainerSecrets(trialDir, cfg, r.Agent, r.CodexAuthFile, true)
 	if err != nil {
-		return AgentResult{}, runtime, newInfrastructureError("prepare container environment: %w", err)
+		return AgentResult{}, runtime, newInfrastructureError("prepare container credentials: %w", err)
 	}
-	defer os.Remove(envPath)
+	defer os.Remove(secretPath)
 
 	authPath, err := prepareCodexAuthSecret(trialDir, r.Agent, r.CodexAuthFile)
 	if err != nil {
@@ -187,18 +201,25 @@ func (r *DockerRunner) Run(ctx context.Context, cfg AgentConfig) (AgentResult, R
 		"--label", "community-gitlab-cli.trial=" + strconv.Itoa(cfg.Trial),
 		"--label", "community-gitlab-cli.project=" + sanitizeLabel(cfg.Project),
 		"--workdir", "/workspace",
-		"--user", "10001:10001",
 		"--init",
 		"--interactive",
 		"--memory", r.Resources.Memory,
 		"--memory-swap", r.Resources.MemorySwap,
 		"--cpus", strconv.FormatFloat(r.Resources.CPUs, 'f', -1, 64),
 		"--pids-limit", strconv.Itoa(r.Resources.PIDs),
-		"--tmpfs", "/home/bench:rw,size=" + r.Resources.HomeTmpfs + ",uid=10001,gid=10001,mode=0700",
-		"--env-file", envPath,
 		"--mount", "type=bind,src=" + workDir + ",dst=/workspace",
 		"--network", r.Resources.NetworkMode,
 	}
+	createArgs = append(createArgs, containerIdentityArgs(r.Identity, r.Resources.HomeTmpfs)...)
+	envArgs, err := containerEnvironmentArgs(cfg)
+	if err != nil {
+		return AgentResult{}, runtime, newInfrastructureError("prepare container environment: %w", err)
+	}
+	createArgs = append(createArgs, envArgs...)
+	if strings.Contains(secretPath, ",") {
+		return AgentResult{}, runtime, newInfrastructureError("container credential path cannot contain a comma")
+	}
+	createArgs = append(createArgs, "--mount", "type=bind,src="+secretPath+",dst="+containerSecretPath+",readonly")
 	if authPath != "" {
 		if strings.Contains(authPath, ",") {
 			return AgentResult{}, runtime, newInfrastructureError("Codex auth path cannot contain a comma")
@@ -215,7 +236,6 @@ func (r *DockerRunner) Run(ctx context.Context, cfg AgentConfig) (AgentResult, R
 	}
 	containerID := strings.TrimSpace(createOut.String())
 	runtime.ContainerID = containerID
-	_ = os.Remove(envPath)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -314,6 +334,52 @@ func parseAgentResult(agent, tool string, result *AgentResult) {
 	result.PolicyViolation = findPolicyViolation(result.Commands, tool)
 }
 
+func hostContainerIdentity() (ContainerIdentity, error) {
+	current, err := user.Current()
+	if err != nil {
+		return ContainerIdentity{}, err
+	}
+	return parseContainerIdentity(current)
+}
+
+func parseContainerIdentity(current *user.User) (ContainerIdentity, error) {
+	if current == nil {
+		return ContainerIdentity{}, errors.New("current user is unavailable")
+	}
+	uid, err := strconv.Atoi(current.Uid)
+	if err != nil || uid < 0 {
+		return ContainerIdentity{}, fmt.Errorf("host UID %q is not a non-negative POSIX ID", current.Uid)
+	}
+	gid, err := strconv.Atoi(current.Gid)
+	if err != nil || gid < 0 {
+		return ContainerIdentity{}, fmt.Errorf("host GID %q is not a non-negative POSIX ID", current.Gid)
+	}
+	identity := ContainerIdentity{UID: uid, GID: gid}
+	if err := validateContainerIdentity(identity); err != nil {
+		return ContainerIdentity{}, err
+	}
+	return identity, nil
+}
+
+func validateContainerIdentity(identity ContainerIdentity) error {
+	if identity.UID == 0 {
+		return errors.New("Docker benchmarks refuse host UID 0; run benchctl as a non-root user")
+	}
+	if identity.UID < 0 || identity.GID < 0 {
+		return fmt.Errorf("container UID/GID must be non-negative, got %d:%d", identity.UID, identity.GID)
+	}
+	return nil
+}
+
+func containerIdentityArgs(identity ContainerIdentity, homeTmpfs string) []string {
+	uid := strconv.Itoa(identity.UID)
+	gid := strconv.Itoa(identity.GID)
+	return []string{
+		"--user", uid + ":" + gid,
+		"--tmpfs", "/home/bench:rw,size=" + homeTmpfs + ",uid=" + uid + ",gid=" + gid + ",mode=0700",
+	}
+}
+
 type containerState struct {
 	OOMKilled  bool      `json:"OOMKilled"`
 	ExitCode   int       `json:"ExitCode"`
@@ -405,13 +471,12 @@ func parseKeyValues(data []byte) map[string]string {
 	return values
 }
 
-func writeContainerEnv(dir string, cfg AgentConfig, agent, codexAuthFile string) (string, error) {
+func containerEnvironmentArgs(cfg AgentConfig) ([]string, error) {
 	env := map[string]string{
 		"HOME":                  "/home/bench",
 		"CODEX_HOME":            "/home/bench/.codex",
 		"GITLAB_BASE_URL":       cfg.Host,
 		"GITLAB_HOST":           cfg.Host,
-		"GITLAB_TOKEN":          cfg.Token,
 		"GL_TOKEN":              "",
 		"GLAB_CONFIG_DIR":       "/home/bench/.config/glab-cli",
 		"GLAB_CHECK_UPDATE":     "false",
@@ -424,27 +489,45 @@ func writeContainerEnv(dir string, cfg AgentConfig, agent, codexAuthFile string)
 		"CLAUDE_CODE_SAFE_MODE": "1",
 		"CLAUDE_CONFIG_DIR":     "/home/bench/.claude",
 	}
-	if agent == AgentCodex {
+	keys := make([]string, 0, len(env))
+	for key := range env {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	args := make([]string, 0, len(keys)*2)
+	for _, key := range keys {
+		value := env[key]
+		if strings.ContainsAny(value, "\r\n") {
+			return nil, fmt.Errorf("environment value %s contains a newline", key)
+		}
+		args = append(args, "--env", key+"="+value)
+	}
+	return args, nil
+}
+
+func writeContainerSecrets(dir string, cfg AgentConfig, agent, codexAuthFile string, includeProvider bool) (string, error) {
+	secrets := map[string]string{"GITLAB_TOKEN": cfg.Token}
+	if includeProvider && agent == AgentCodex {
 		if value := os.Getenv("CODEX_ACCESS_TOKEN"); value != "" {
-			env["CODEX_ACCESS_TOKEN"] = value
+			secrets["CODEX_ACCESS_TOKEN"] = value
 		} else if _, err := os.Stat(codexAuthFile); err != nil {
 			if value := os.Getenv("CODEX_API_KEY"); value != "" {
-				env["CODEX_API_KEY"] = value
+				secrets["CODEX_API_KEY"] = value
 			} else {
 				return "", fmt.Errorf("no Codex account auth: set CODEX_ACCESS_TOKEN or provide --codex-auth-file")
 			}
 		}
-	} else {
+	} else if includeProvider {
 		if value := os.Getenv("CLAUDE_CODE_OAUTH_TOKEN"); value != "" {
-			env["CLAUDE_CODE_OAUTH_TOKEN"] = value
+			secrets["CLAUDE_CODE_OAUTH_TOKEN"] = value
 		} else if value := os.Getenv("ANTHROPIC_API_KEY"); value != "" {
-			env["ANTHROPIC_API_KEY"] = value
+			secrets["ANTHROPIC_API_KEY"] = value
 		} else {
 			return "", errors.New("no Claude account auth: set CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`")
 		}
 	}
 
-	file, err := os.CreateTemp(dir, ".container-env-*")
+	file, err := os.CreateTemp(dir, ".container-secret-*")
 	if err != nil {
 		return "", err
 	}
@@ -459,9 +542,15 @@ func writeContainerEnv(dir string, cfg AgentConfig, agent, codexAuthFile string)
 	if err := file.Chmod(0o600); err != nil {
 		return "", err
 	}
-	for key, value := range env {
+	keys := make([]string, 0, len(secrets))
+	for key := range secrets {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		value := secrets[key]
 		if strings.ContainsAny(value, "\r\n") {
-			return "", fmt.Errorf("environment value %s contains a newline", key)
+			return "", fmt.Errorf("credential value %s contains a newline", key)
 		}
 		if _, err := fmt.Fprintf(file, "%s=%s\n", key, value); err != nil {
 			return "", err
@@ -497,10 +586,9 @@ func prepareCodexAuthSecret(dir, agent, source string) (string, error) {
 			os.Remove(path)
 		}
 	}()
-	// The containing trial directory is mode 0700. The file itself must be
-	// readable by the fixed container UID before the entrypoint copies it into
-	// the private tmpfs home and restores mode 0600.
-	if err := file.Chmod(0o444); err != nil {
+	// The container uses the host numeric UID, so the staged credential can
+	// remain owner-readable only.
+	if err := file.Chmod(0o600); err != nil {
 		return "", err
 	}
 	if _, err := file.Write(data); err != nil {

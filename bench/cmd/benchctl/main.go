@@ -132,7 +132,7 @@ func parseConfig(root, name string, args []string) (benchmark.Config, bool, erro
 	codexImage := flags.String("codex-image", benchmark.DefaultCodexImage, "Codex benchmark image")
 	claudeImage := flags.String("claude-image", benchmark.DefaultClaudeImage, "Claude benchmark image")
 	codexAuthFile := flags.String("codex-auth-file", benchmark.DefaultCodexAuthFile(), "file-backed Codex account credentials")
-	keepContainer := flags.Bool("keep-container", false, "retain the stopped trial container and workspace for debugging")
+	keepContainer := flags.Bool("keep-container", false, "retain the sanitized stopped container and workspace for inspection (not restartable)")
 	failOnTaskFailure := flags.Bool("fail-on-task-failure", false, "exit nonzero when a graded trial fails")
 	if err := flags.Parse(args); err != nil {
 		return benchmark.Config{}, false, err
