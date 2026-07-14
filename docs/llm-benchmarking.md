@@ -218,7 +218,7 @@ host orchestrator
     exact Claude/Codex CLI and model configuration
     pinned CLI or MCP adapters
     task workspace + prompt + selected helper condition only
-    scoped GitLab and provider credentials in the environment
+    scoped GitLab and provider credentials from ephemeral secret mounts
     no host repository, host user config, or other trial state
             |
             v
@@ -240,7 +240,8 @@ The container should receive only:
   `normalized` condition;
 - generated neutral agent configuration containing no user preferences,
   memories, hooks, plugins, unrelated skills, or ambient project instructions;
-- the scoped GitLab token and provider authentication in environment variables;
+- the scoped GitLab token and provider authentication through ephemeral,
+  read-only credential mounts loaded by the trusted image entrypoint;
   and
 - normal outbound network access to the remote GitLab URL and model provider.
 
@@ -253,8 +254,11 @@ stdout/stderr rather than a writable result mount.
 ### Container profile
 
 Give each trial a fresh writable layer, temporary home, temporary workspace,
-fixed CPU/memory/PID limits, and hard wall-time limit. Run as a non-root user
-and never use `--privileged`, host PID namespaces, or a Docker socket mount.
+fixed CPU/memory/PID limits, and hard wall-time limit. Run as the non-root
+host user's numeric UID/GID so files created through the workspace bind mount
+remain removable on native Linux. Root hosts and non-POSIX identities are
+rejected. Never use `--privileged`, host PID namespaces, or a Docker socket
+mount.
 Custom seccomp profiles, credential brokers, and deny-by-default egress are not
 required for the dedicated benchmark environment.
 
@@ -276,7 +280,7 @@ remains available for fast harness development. The Docker runner:
 
 1. validate the selected image and adapter/helper hashes;
 2. create a new temporary repository and uniquely named container;
-3. pass the GitLab/provider environment and generated agent configuration;
+3. mount the GitLab/provider credentials and pass generated agent configuration;
 4. start the container with fixed resource limits and stream stdout/stderr;
 5. enforce the timeout and inspect exit/OOM state;
 6. remove the container and temporary workspace on every exit path; and
@@ -287,10 +291,11 @@ For Codex trials, the container is the sandbox boundary. `DockerRunner` adds
 to create a nested `bwrap` namespace. Local-mode runs keep Codex's normal
 `workspace-write` sandbox.
 
-The run manifest should include the image ID/digest, Docker platform, agent and
-adapter versions, helper condition, resource limits, network name, isolation
-mode, container startup duration, exit/OOM state, and whether cleanup
-succeeded. Do not record credential values or raw Docker environment output.
+The run manifest should include the image ID/digest, Docker platform, numeric
+container identity, agent and adapter versions, helper condition, resource
+limits, network name, isolation mode, container startup duration, exit/OOM
+state, and whether cleanup succeeded. Do not record credential values or raw
+Docker environment output.
 
 ### Isolation acceptance tests
 
@@ -304,6 +309,9 @@ Container isolation is complete when integration tests prove:
   into a second trial;
 - timeout, cancellation, OOM, and agent crash paths still remove every
   container, temporary workspace, and fixture; and
+- host cleanup can remove container-created mode-0700 workspace content on
+  native Linux, and retained containers expose no token through
+  `docker inspect .Config.Env`; and
 - the manifest identifies the image, adapter, task, helper condition, resource
   policy, and exit state without including tokens.
 
@@ -406,8 +414,9 @@ prompt/helper hashes without recording credential values.
 
 Before traces and normalized results are written, the harness replaces the
 GitLab token, selected provider credential, and token values from Codex's auth
-file with `[REDACTED]`. This also covers accidental credential output from an
-agent command.
+file with `[REDACTED]`. A final typed redaction pass covers policy violations,
+grade failures, execution errors, cleanup errors, and terminal diagnostics so
+late error construction cannot reintroduce a credential.
 
 `summary.json` aggregates normalized input, cached input, cache-creation,
 output, reasoning, and turn counts. It records both summed agent execution
@@ -463,7 +472,10 @@ export CLAUDE_CODE_OAUTH_TOKEN=...
 ```
 
 `CODEX_API_KEY` and `ANTHROPIC_API_KEY` remain compatibility fallbacks. Only
-the selected agent's provider credential is passed to a container.
+the selected agent's provider credential is passed to a container. Credential
+values are staged in mode-0600 files, mounted read-only outside `/workspace`,
+loaded by an allowlisted entrypoint without shell evaluation, and deleted when
+the container stops. They are never stored in Docker's configured environment.
 
 ### Commands
 
@@ -511,10 +523,9 @@ and records task failures as benchmark data.
   its workspace sandbox with network enabled.
 - Claude runs in safe mode and Codex ignores user config. Both use fresh
   container homes and pinned image installations recorded in the run manifest.
-- GitLab and provider credentials are passed through the trial environment.
-  This matches the dedicated local benchmark environment; running untrusted
-  tasks against shared infrastructure would require a different credential
-  policy.
+- GitLab and provider credentials are loaded into the trial process from
+  short-lived read-only mounts. Running untrusted tasks against shared
+  infrastructure would still require a different credential policy.
 - Read-only graders use exact string containment instead of a shared structured
   final-answer schema.
 - Trials are sequential and reports contain raw results rather than confidence

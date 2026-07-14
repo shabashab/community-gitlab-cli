@@ -144,7 +144,9 @@ When to run it:
 Builds pinned agent images, lists the LLM benchmark MVP tasks, validates the
 selected image/agent/tool and live GitLab configuration, or runs
 execution-graded trials respectively. Each Docker trial gets a fresh container,
-home, and workspace; `--isolation local` is development-only. Benchmark
+home, and workspace, runs as the non-root host numeric UID/GID, and receives
+credentials through ephemeral read-only mounts; `--isolation local` is
+development-only. Benchmark
 runs require `GL_BENCH_HOST`, `GL_BENCH_TOKEN`, and `GL_BENCH_GROUP`, exported
 or placed in the gitignored `.benchmark.env` file loaded by the benchmark
 tasks (with `GL_E2E_*` fallbacks for local validation), plus an exact
@@ -273,6 +275,16 @@ Helpful starting points inside the client-go source:
 Run tests with `task test` (`go test ./...`). Tests live next to their package (`internal/cli/*_test.go`, `internal/repo/discovery_test.go`). There are no interface mocks and no golden files — read this section before writing a test so you match the house style on the first attempt.
 
 A separate live-instance E2E/UAT suite lives in `e2e/` (`//go:build e2e`, testscript `.txtar` scripts, `task e2e`) — see `docs/e2e-testing.md` for provisioning, the custom script commands, and how to write scenarios. It never runs under `task test`; use it to verify behavior end to end around refactors.
+
+### Hermetic tests and container safety
+
+- Untagged tests included by `go test ./...` must be hermetic: never contact a Docker daemon, external API, real credential store, or billable model provider. Put live coverage behind an explicit build tag and Taskfile command.
+- When testing that validation gates a side effect, instrument the effect with a fake or local counter and assert that it received zero calls; checking only the validation error is insufficient.
+- Treat secret redaction as an output-boundary invariant. Sanitize process/API-derived diagnostics after their final mutation and before JSON, files, stdout, or stderr; include commands, policy failures, execution errors, cleanup errors, and duplicated failure lists.
+- Security tests must inject sentinel credentials into every persisted and printed diagnostic channel and assert that serialized artifacts and captured terminal output contain none of them.
+- A container that writes to a bind-mounted workspace must use the host's non-root numeric UID/GID. Do not rely on a fixed UID, recursive world-writable permissions, Docker Desktop ownership mapping, or privileged ownership-restoration helpers. Share one identity/profile builder across trial and preflight callsites.
+- Never pass credentials through Docker `--env`, `--env-file`, labels, names, or argv when a container can survive. Use short-lived read-only secret mounts, delete their sources when the process stops, and inspect retained container configuration in integration tests.
+- Debug-retention modes must state what sensitive data remains, must not extend credential lifetime silently, and must document whether retained resources can be restarted.
 
 ### E2E scripts are part of the definition of done
 

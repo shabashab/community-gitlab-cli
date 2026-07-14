@@ -11,10 +11,11 @@ Run each trial in one new Docker container and remove it when the trial ends.
 Keep fixture provisioning, readiness checks, grading, result aggregation, and
 GitLab project cleanup in the host `benchctl` process.
 
-Pass the trial's remote GitLab URL, GitLab token, provider authentication,
-model, and selected adapter through environment variables or generated
-per-trial config. This is appropriate for the intended environment: a
-dedicated GitLab instance and tokens scoped to disposable benchmark projects.
+Pass the trial's remote GitLab URL, model, and selected adapter as non-secret
+configuration. Stage GitLab and provider credentials in ephemeral read-only
+mounts that the trusted entrypoint loads into the trial process. This is
+appropriate for the intended environment: a dedicated GitLab instance and
+tokens scoped to disposable benchmark projects.
 
 The implementation does not need credential brokers, restricted egress
 proxies, custom RPC protocols, or a separate adapter container. Docker is being
@@ -34,7 +35,7 @@ host benchctl
     exact Claude Code or Codex version
     gl, gl-axi, and pinned glab
     fresh HOME and workspace
-    GitLab/provider configuration in environment
+    GitLab/provider credentials from ephemeral secret mounts
     normal network access to GitLab and the model provider
              |
              v
@@ -74,8 +75,10 @@ SSH directory, Docker socket, result directory, or another trial's workspace.
 The generated neutral repository is the only host directory that needs to be
 mounted, and it is deleted after the trial.
 
-It is acceptable for the container to receive benchmark tokens through its
-environment. Do not write environment values into traces or the run manifest.
+It is acceptable for the agent process to receive benchmark tokens in its
+environment after the trusted entrypoint reads them. Secret values must not be
+stored in Docker's configured environment, labels, names, argv, traces, or run
+manifest.
 
 ## Images
 
@@ -149,28 +152,35 @@ docker create
   --label community-gitlab-cli.run=<run-id>
   --label community-gitlab-cli.trial=<trial-id>
   --workdir /workspace
-  --user 10001:10001
+  --user <host-uid>:<host-gid>
   --init
   --memory 2g
   --memory-swap 2g
   --cpus 2
   --pids-limit 256
-  --tmpfs /home/bench:rw,size=256m,uid=10001,gid=10001,mode=0700
+  --tmpfs /home/bench:rw,size=256m,uid=<host-uid>,gid=<host-gid>,mode=0700
   --env HOME=/home/bench
   --env GITLAB_BASE_URL=<GL_BENCH_HOST>
-  --env GITLAB_TOKEN=<scoped-benchmark-token>
   --env GL_TOKEN=
   --env DISABLE_AUTOUPDATER=1
   --mount type=bind,src=<temporary-trial-repo>,dst=/workspace
+  --mount type=bind,src=<mode-0600-secret-file>,dst=/run/secrets/benchmark.env,readonly
   --network bridge
   <agent-image>
   <agent-command...>
 ```
 
-Pass `CODEX_API_KEY`, `ANTHROPIC_API_KEY`, or other required provider variables
-only to the matching agent container. If an agent must use account-based auth
-instead of an API key, copy the minimum auth file into the trial's temporary
-home rather than mounting the complete host agent directory.
+Put `CODEX_API_KEY`, `ANTHROPIC_API_KEY`, or other provider credentials only in
+the matching agent's secret file. The entrypoint accepts a fixed credential-key
+allowlist and never evaluates file content as shell code. For account-based
+auth, mount the minimum mode-0600 auth file and copy it into the private tmpfs
+home rather than mounting the complete host agent directory. Delete all staged
+secret sources after the container stops.
+
+Resolve the host's numeric POSIX UID/GID once and use it at every trial and
+preflight callsite. Reject UID 0 and non-numeric identities. Matching the bind
+mount owner keeps container-created files host-removable without recursive
+world-writable permissions or privileged cleanup helpers.
 
 The fixed CPU, memory, and PID limits are primarily for comparable measurements
 and runaway-process protection. Calibrate them with smoke runs, then keep the
@@ -180,7 +190,7 @@ Codex must not start its internal `bwrap` sandbox inside the trial container:
 the nested user namespace is unavailable on common Docker runtimes. The Docker
 runner therefore adds `--dangerously-bypass-approvals-and-sandbox` to `codex
 exec`. This is scoped to `DockerRunner`; `LocalRunner` retains Codex's
-`workspace-write` sandbox. The fresh container, fixed unprivileged UID,
+`workspace-write` sandbox. The fresh container, host-matched unprivileged UID,
 resource limits, tmpfs home, and single workspace mount remain the outer
 isolation boundary.
 
@@ -213,7 +223,8 @@ For every task repetition:
    the fixture's origin and current branch.
 3. Build the prompt and declared helper condition.
 4. Create a uniquely named container with labels, resource limits, fresh home,
-   trial repository, environment variables, and selected image.
+   trial repository, non-secret configuration, ephemeral credential mounts,
+   and the selected image.
 5. Start it attached, send the prompt on stdin, and stream stdout/stderr into
    the existing event capture.
 6. Enforce the trial timeout. On cancellation or timeout, kill the container.
@@ -242,6 +253,12 @@ Add these flags:
 --codex-auth-file <path>     default $CODEX_HOME/auth.json
 --keep-container             debugging only
 ```
+
+`--keep-container` retains the stopped container and workspace only after all
+staged secret sources are deleted. The retained container is safe to inspect
+but intentionally not restartable without re-provisioning credentials. The
+workspace can still contain repository and agent-created content; remove it
+with `task benchmark:clean` when debugging is complete.
 
 The existing GitLab variables can remain unchanged:
 
@@ -276,6 +293,7 @@ Record enough runtime information to explain and repeat a result:
 - Docker client/server version and active context;
 - image ID/digest, OS, and architecture;
 - container ID and name;
+- host-matched numeric container UID/GID;
 - requested resource limits;
 - agent and adapter versions;
 - Docker network mode and remote GitLab URL without tokens;
@@ -283,8 +301,8 @@ Record enough runtime information to explain and repeat a result:
 - helper and prompt-template hashes; and
 - cleanup success.
 
-Do not record environment-variable values, provider auth files, or Docker
-inspection output containing the environment.
+Do not record environment-variable values, provider auth files, staged secret
+paths, or Docker inspection output containing the environment.
 
 ## Isolation tests
 
@@ -303,6 +321,8 @@ The Docker integration tests should focus on trial independence:
    adapter and is graded normally on the host.
 7. Repeated and parallel trials leave no container, process, workspace, or
    GitLab fixture behind.
+8. Container-created mode-0700 workspace paths remain host-removable on native
+   Linux, and retained container configuration contains no credential value.
 
 These are harness tests. Their failure invalidates the benchmark run rather
 than counting as a model failure.
@@ -320,7 +340,8 @@ than counting as a model failure.
 
 - Add the two pinned agent Dockerfiles and image-build task.
 - Implement create, attach, timeout, inspect, and cleanup.
-- Pass the current GitLab and provider environment into the container.
+- Stage GitLab/provider credentials through ephemeral read-only mounts and
+  load them through the allowlisted entrypoint.
 - Reproduce the existing JSONL traces and graders for the three MVP tasks.
 
 ### 3. Isolation verification and handoff (implemented; live matrix remains operator-run)
@@ -330,15 +351,16 @@ than counting as a model failure.
 - Make Docker isolation the required mode for complete comparative runs while
   preserving local mode for harness development.
 - Add MCP servers to the images or generated agent config when that adapter
-  work begins; they can use the same scoped GitLab environment variables.
+  work begins; they can use the same scoped GitLab credential mount.
 
 ## Definition of done
 
 Docker support is complete when every trial gets a new container, home, and
 workspace; Claude and Codex complete the current MVP tasks from the images;
 the host grader still determines correctness; repeated and parallel trials do
-not share state; timeout and crash paths clean up reliably; and the manifest
-identifies the exact image, agent, adapter, resources, and Docker runtime used.
+not share state; timeout and crash paths clean up reliably; retained containers
+contain no configured credentials; and the manifest identifies the exact
+image, agent, adapter, identity, resources, and Docker runtime used.
 
 ## References
 
