@@ -1,0 +1,48 @@
+ARG GO_IMAGE=golang:1.26.4-bookworm@sha256:b305420a68d0f229d91eb3b3ed9e519fcf2cf5461da4bef997bf927e8c0bfd2b
+ARG NODE_IMAGE=node:24.14.1-bookworm-slim@sha256:b506e7321f176aae77317f99d67a24b272c1f09f1d10f1761f2773447d8da26c
+
+FROM ${GO_IMAGE} AS project-builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -o /out/gl ./cmd/gl \
+    && CGO_ENABLED=0 go build -trimpath -o /out/gl-axi ./cmd/gl-axi
+
+FROM ${GO_IMAGE} AS glab-builder
+ARG GLAB_COMMIT=e345ca679f612b4990175d6e33839ba864bb02d2
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git make \
+    && rm -rf /var/lib/apt/lists/*
+RUN git clone --filter=blob:none https://gitlab.com/gitlab-org/cli.git /src/glab \
+    && cd /src/glab \
+    && git checkout "${GLAB_COMMIT}" \
+    && make build
+
+FROM ${NODE_IMAGE}
+ARG CODEX_VERSION=0.144.3
+ARG REPOSITORY_COMMIT=unknown
+ARG REPOSITORY_DIRTY=unknown
+ARG DOCKERFILE_SHA256=unknown
+LABEL org.opencontainers.image.source="https://github.com/shabashab/community-gitlab-cli" \
+      org.opencontainers.image.revision="${REPOSITORY_COMMIT}" \
+      community-gitlab-cli.repository-dirty="${REPOSITORY_DIRTY}" \
+      community-gitlab-cli.dockerfile-sha256="${DOCKERFILE_SHA256}" \
+      community-gitlab-cli.agent="codex" \
+      community-gitlab-cli.agent-version="${CODEX_VERSION}" \
+      community-gitlab-cli.glab-version="1.100.0"
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends bash ca-certificates git tini \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm install --global --omit=dev "@openai/codex@${CODEX_VERSION}" \
+    && groupadd --gid 10001 bench \
+    && useradd --uid 10001 --gid 10001 --home-dir /home/bench --create-home --shell /bin/bash bench
+COPY --from=project-builder /out/gl /usr/local/bin/gl
+COPY --from=project-builder /out/gl-axi /usr/local/bin/gl-axi
+COPY --from=glab-builder /src/glab/bin/glab /usr/local/bin/glab
+COPY --chmod=0755 bench/docker/bench-entrypoint.sh /usr/local/bin/bench-entrypoint
+COPY --chmod=0755 bench/docker/bench-image-info.sh /usr/local/bin/bench-image-info
+ENV BENCH_AGENT=codex \
+    DISABLE_AUTOUPDATER=1 \
+    GLAB_CHECK_UPDATE=false
+ENTRYPOINT ["/usr/local/bin/bench-entrypoint"]

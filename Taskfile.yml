@@ -17,6 +17,61 @@ tasks:
     desc: Run Go tests
     cmds:
       - go test ./...
+  benchmark:list:
+    desc: List the LLM benchmark MVP tasks
+    cmds:
+      - go run ./bench/cmd/benchctl list
+  benchmark:images:
+    desc: Build pinned Claude Code and Codex benchmark images
+    vars:
+      REPOSITORY_COMMIT:
+        sh: git rev-parse HEAD
+      REPOSITORY_DIRTY:
+        sh: test -z "$(git status --porcelain --untracked-files=normal)" && echo false || echo true
+      CODEX_DOCKERFILE_SHA256:
+        sh: shasum -a 256 bench/docker/Dockerfile.codex | awk '{print $1}'
+      CLAUDE_DOCKERFILE_SHA256:
+        sh: shasum -a 256 bench/docker/Dockerfile.claude | awk '{print $1}'
+    cmds:
+      - >-
+        docker build
+        --file bench/docker/Dockerfile.codex
+        --build-arg REPOSITORY_COMMIT={{.REPOSITORY_COMMIT}}
+        --build-arg REPOSITORY_DIRTY={{.REPOSITORY_DIRTY}}
+        --build-arg DOCKERFILE_SHA256={{.CODEX_DOCKERFILE_SHA256}}
+        --tag community-gitlab-cli-bench-codex:local
+        .
+      - >-
+        docker build
+        --file bench/docker/Dockerfile.claude
+        --build-arg REPOSITORY_COMMIT={{.REPOSITORY_COMMIT}}
+        --build-arg REPOSITORY_DIRTY={{.REPOSITORY_DIRTY}}
+        --build-arg DOCKERFILE_SHA256={{.CLAUDE_DOCKERFILE_SHA256}}
+        --tag community-gitlab-cli-bench-claude:local
+        .
+  benchmark:preflight:
+    desc: Check live GitLab, agent, and adapter prerequisites for an LLM benchmark run
+    dotenv: ['.benchmark.env']
+    deps:
+      - build
+    cmds:
+      - go run ./bench/cmd/benchctl preflight {{.CLI_ARGS}}
+  benchmark:run:
+    desc: Run execution-graded GitLab tasks through Claude Code or Codex
+    dotenv: ['.benchmark.env']
+    deps:
+      - build
+    cmds:
+      - go run ./bench/cmd/benchctl run {{.CLI_ARGS}}
+  benchmark:isolation-test:
+    desc: Run opt-in Docker trial-isolation integration tests
+    cmds:
+      - go test -tags dockerintegration -count=1 -run TestDockerIsolation ./bench/internal/benchmark
+  benchmark:clean:
+    desc: Remove leaked benchmark containers, workspaces, and GitLab projects
+    dotenv: ['.benchmark.env']
+    cmds:
+      - go run ./bench/cmd/benchctl clean {{.CLI_ARGS}}
   e2e:
     desc: Run live E2E tests (needs GL_E2E_HOST, GL_E2E_TOKEN, GL_E2E_GROUP; .test.env is loaded when present)
     dotenv: ['.test.env']

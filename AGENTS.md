@@ -54,7 +54,9 @@ The project includes another binary named `gl-axi`. That binary is intended to b
 - `docs/merge-requests.md`: user-facing merge request workflow guide — lifecycle commands, diffs, discussions, reactions, comments, and draft reviews; update when the `mr` command surface changes.
 - `docs/README.md`: documentation index separating user, agent, and contributor references.
 - `docs/e2e-testing.md`: E2E/UAT suite reference — instance provisioning, `GL_E2E_*` env vars, custom script commands, script-writing rules, UAT checklist; update when changing the `e2e/` harness or adding scripts.
+- `docs/llm-benchmarking.md`: design and operating guide for execution-graded Claude Code/Codex comparisons across CLI and MCP GitLab adapters, including helper-skill ablations, metrics, and MVP limitations.
 - `e2e/`: live-instance E2E suite (`//go:build e2e`) — testscript harness (`e2e_test.go`, `params.go`, `cmds.go`, `fixtures.go`), `.txtar` scenarios under `testdata/<family>/`, and `janitor/` (untagged) sweeping leaked `gl-e2e-*` fixture projects.
+- `bench/`: opt-in container-isolated LLM benchmark harness, kept separate from `go test` and the deterministic E2E suite — `cmd/benchctl` drives preflight/list/run/clean flows; `docker/` owns the pinned Claude/Codex images; `internal/benchmark` owns disposable GitLab fixtures, per-trial Docker execution, event parsing, helper material, task graders, traces, manifests, and result aggregation; `results/` is gitignored.
 - `internal/gitlabclient/config.go`: shared GitLab client-go configuration and client construction.
 - `internal/repo/discovery.go`: shared git origin discovery and remote URL parsing.
 - `internal/credstore/`: hybrid credential store — OS keychain via `github.com/zalando/go-keyring` with an encrypted-file fallback at `~/.gl/credentials.json`; `store.go` is the hybrid entry point, `domain.go` canonicalizes base URLs into credential keys, `crypto.go`/`file.go` implement the encrypted file backend, `keyring.go` wraps the OS keychain.
@@ -136,6 +138,30 @@ When to run it:
 - Before and after invasive refactors, to prove command behavior is unchanged against real GitLab.
 - Before releases, as the UAT pass.
 - Filter with `task e2e -- -run 'TestMR/mr-lifecycle'` during script development.
+
+### `task benchmark:images` / `task benchmark:list` / `task benchmark:preflight` / `task benchmark:run`
+
+Builds pinned agent images, lists the LLM benchmark MVP tasks, validates the
+selected image/agent/tool and live GitLab configuration, or runs
+execution-graded trials respectively. Each Docker trial gets a fresh container,
+home, and workspace; `--isolation local` is development-only. Benchmark
+runs require `GL_BENCH_HOST`, `GL_BENCH_TOKEN`, and `GL_BENCH_GROUP`, exported
+or placed in the gitignored `.benchmark.env` file loaded by the benchmark
+tasks (with `GL_E2E_*` fallbacks for local validation), plus an exact
+`--model`. See `docs/llm-benchmarking.md` for matrix design, helper conditions,
+safety limitations, and examples.
+
+When to run them:
+
+- After changing `bench/` fixtures, task prompts, agent drivers, graders, or
+  trace parsing.
+- Before publishing comparative agent/tool results.
+- Never as part of `task test`; benchmark runs create remote projects and spend
+  model credits.
+
+Use `task benchmark:isolation-test` for the opt-in fake-agent Docker harness
+tests and `task benchmark:clean` to sweep leaked labeled containers, temporary
+workspaces, and `gl-bench-*` projects.
 
 ### `task client-go-source`
 
