@@ -37,5 +37,10 @@ gl mr comment --help
   request expectations.
 - [E2E / UAT testing](e2e-testing.md) — live GitLab test environment,
   testscript scenarios, and release verification.
+- [LLM agent benchmarking](llm-benchmarking.md) — compare Claude Code and
+  Codex across GitLab CLI and MCP adapters with execution-graded tasks.
+- [Benchmark containerization implementation](benchmark-containerization-proposal.md)
+  — Docker runner, images, lifecycle, isolation tests, and cleanup contract for
+  fresh per-trial environments.
 - [Agent project guide](../AGENTS.md) — detailed repository architecture and
   implementation contracts for coding agents.

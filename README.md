@@ -171,6 +171,7 @@ See [Agent session integrations](docs/agent-integrations.md) and the
 - [Agent session integrations](docs/agent-integrations.md)
 - [gl-axi output reference](docs/axi-output.md)
 - [Errors and exit codes](docs/errors-and-exit-codes.md)
+- [LLM agent benchmarking](docs/llm-benchmarking.md)
 
 ## Contributing
 
